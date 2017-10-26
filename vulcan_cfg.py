@@ -18,7 +18,7 @@ out_y_time_freq = 10
 
 # ====== Setting up the elemental abundance ======
 use_solar = False
-atom_list = ['H', 'O', 'C', 'He', 'N'] # , 'Na'
+atom_list = ['H', 'O', 'C', 'He', 'N']
 # default: solar abundance (from Table 10. K.Lodders 2009)
 O_H = 6.0618E-4 *(0.793) 
 C_H = 2.7761E-4 
@@ -50,7 +50,7 @@ P_b = 1.E9 #(dyne/cm^2)
 P_t = 1.E1  
 
 use_fix_bot = False
-use_topflux = True # setting constant flux (from top_BC_mix_file) as the top BC
+use_topflux = False # setting constant flux (from top_BC_mix_file) as the top BC
 
 # ====== Setting up general parameters for the ODE solver ====== 
 ode_solver = 'Ros2' # case sensitive
