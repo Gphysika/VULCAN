@@ -116,6 +116,9 @@ data_var = ini_abun.ele_sum(data_var)
 # calculating mean molecular weight, dz, and dzi
 data_atm = make_atm.f_mu_dz(data_var, data_atm)
 
+# read in the const top BC
+if vulcan_cfg.use_topflux == True: make_atm.top_BC_flux(data_atm)
+
 # ============== Execute VULCAN  ==============
 # time-steping in the while loop until conv() returns True or count > count_max 
 

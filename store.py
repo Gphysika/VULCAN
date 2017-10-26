@@ -79,7 +79,7 @@ class AtmData(object):
         self.n_0 = np.empty(nz)
         self.Hp = np.empty(nz)
         self.mu = np.empty(nz)
-
+        self.top_flux = np.zeros(ni)
                 
 
 

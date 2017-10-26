@@ -1,0 +1,3 @@
+#species flux [cm-2 s-1]   mixing
+H             1.259e+08    2.090e-03
+CO            3.657e+06    6.070e-05

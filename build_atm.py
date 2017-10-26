@@ -443,6 +443,17 @@ class Atm(object):
         data_atm.dzi = dzi
         
         return data_atm
+        
+    def top_BC_flux(self, atm):
+        '''
+        Reading-in the top boundary of constant flux (cm^-2 s^-1)
+        '''    
+        print ("Using the prescribed constant top flux.")
+        with open (vulcan_cfg.top_BC_mix_file) as f:
+            for line in f.readlines():
+                if not line.startswith("#") and line.strip():
+                    li = line.split()                   
+                    atm.top_flux[species.index(li[0])] = li[1]
 
 if __name__ == "__main__":
     print("This module stores classes for constructing atmospheric structure \

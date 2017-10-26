@@ -525,7 +525,7 @@ class ODESolver(object):
         self.mtol = vulcan_cfg.mtol
         self.atol = vulcan_cfg.atol       
         
-    def diffdf(self, y, atm):  # input y,dzi,Kzz
+    def diffdf(self, y, atm):
         """
         function of eddy diffusion with zero-flux boundary conditions and non-uniform grids (dzi)
         in the form of Aj*y_j + Bj+1*y_j+1 + Cj-1*y_j-1
@@ -555,6 +555,11 @@ class ODESolver(object):
         tmp2 = (A[nz-1]*y[nz-1] +C[nz-1]*y[nz-2]) 
         diff = np.append(np.append(tmp0, tmp1), tmp2)
         diff = diff.reshape(nz,ni)
+        
+        if vulcan_cfg.use_topflux == True:
+            # Don't forget dz!!! -d phi/ dz
+            ### the const flux has no contribution to the jacobian ### 
+            diff[-1] += atm.top_flux / dzi[nz-2]
 
         return diff
             

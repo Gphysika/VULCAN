@@ -8,6 +8,7 @@ gibbs_text = 'thermo/gibbs_text.txt'
 # all the nasa9 files must be placed in the folder: thermo/NASA9/
 com_file = 'thermo/all_compose.txt'
 atm_file = 'atm/atm_HD189.txt'
+top_BC_mix_file = 'atm/BC_top.txt'
 
 output_dir = 'output/'
 plot_dir = 'plot/'
@@ -49,6 +50,7 @@ P_b = 1.E9 #(dyne/cm^2)
 P_t = 1.E1  
 
 use_fix_bot = False
+use_topflux = True # setting constant flux (from top_BC_mix_file) as the top BC
 
 # ====== Setting up general parameters for the ODE solver ====== 
 ode_solver = 'Ros2' # case sensitive
