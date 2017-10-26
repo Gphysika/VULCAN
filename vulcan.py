@@ -75,10 +75,10 @@ from chem_funs import ni, nr  # number of species and reactions in the network
 np.set_printoptions(threshold='nan')  # print all for debuging
 
 
-### sholud these be here?
 species = chem_funs.spec_list
 compo = np.genfromtxt(vulcan_cfg.com_file,names=True,dtype=None)
 compo_row = list(compo['species'])
+
 
 ### creat the instances for storing the variables and parameters
 data_var = store.Variables()
@@ -121,11 +121,11 @@ data_atm = make_atm.f_mu_dz(data_var, data_atm)
 
 # setting the solver to the desinated one in vulcan_cfg
 solver = eval("op." + vulcan_cfg.ode_solver + "()") 
-quasi = op.QuasiSteady(solver, output)
+#quasi = op.QuasiSteady(solver, output)
 
 # Running the integration loop
 integ = op.Integration(solver, output) 
 integ(data_var, data_atm, data_para, make_atm)
-quasi(data_var, data_atm, data_para, make_atm)
+#quasi(data_var, data_atm, data_para, make_atm)
 
 output.save_out(data_var, data_atm, data_para, dname)

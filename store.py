@@ -5,7 +5,7 @@ import vulcan_cfg
 #from phy_const import *
 #import HOC, HOC_jac
 from vulcan_cfg import nz
-from vulcan_cfg import na # the number of atoms
+#from vulcan_cfg import na # the number of atoms
 from chem_funs import ni, nr  # number of species and reactions in the network
 
 
@@ -20,6 +20,7 @@ class Variables(object):
         self.y_prev = np.zeros((nz, ni))
         self.ymix = np.zeros((nz, ni))
         self.ysum = 0
+        self.y_ini = np.zeros((nz, ni))
         #self.yconv = 1.
         #self.yconv_prev = 1.
         
@@ -95,4 +96,3 @@ class Parameters(object):
         self.loss_count = 0
         self.delta_count= 0
         self.end_case = 0
-        

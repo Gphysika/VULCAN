@@ -46,7 +46,6 @@ class ReadRate(object):
         var.Rf, var.Rindx, var.a, var.n, var.E, var.a_inf, var.n_inf, var.E_inf, var.k, var.k_fun, var.k_inf,  var.kinf_fun,  var.k_fun_new
         
         i = self.i
-        # flags for starting 3-body, 3-body without high-P rates
         re_tri, re_tri_k0 = self.re_tri, self.re_tri_k0
         list_tri = self.list_tri
         
@@ -56,13 +55,13 @@ class ReadRate(object):
         special_re = False
                
         with open(vulcan_cfg.network) as f:
+            print ('k > 1.e-9:')
             for line in f.readlines():
                 
                 # switch to 3-body and dissociation reations 
                 if line.startswith("# 3-body"): 
                     re_tri = True
-                
-                # switch to 3-body without high-pressure rates
+                    
                 if line.startswith("# 3-body reactions without high-pressure rates"):
                     re_tri_k0 = True
                     
@@ -77,7 +76,7 @@ class ReadRate(object):
                     li = line.partition(']')[-1].strip()
                     columns = li.split()
                     Rindx[i] = int(line.partition('[')[0].strip())
-                    
+                              
                     a[i] = float(columns[0])
                     n[i] = float(columns[1])
                     E[i] = float(columns[2])
@@ -86,7 +85,7 @@ class ReadRate(object):
                         ofstr += re_label + str(i) + '\n'
                         ofstr +=  Rf[i] + '\n'
                 
-                    # switching to trimolecular reactions (re_tri_k0 == False for those with high-P limit rates)   
+                    # switching to trimolecular reactions (len(columns) > 3 for those with high-P limit rates)   
                     if re_tri == True and re_tri_k0 == False:
                         a_inf[i] = float(columns[3])
                         n_inf[i] = float(columns[4])
@@ -118,7 +117,12 @@ class ReadRate(object):
         
                     else: # for 3-body reactions without high-pressure rates
                         k[i] = k_fun[i](Tco, M)
-                                
+                    
+                    
+                    
+                    if np.any(k[i]>1.e-9):
+                        print ('R' + str(i))
+                        print (np.amax(k[i]))      
                     ### TEST CAPPING
                     # k[i] = np.minimum(k[i],1.E-11)
                     ###
@@ -164,7 +168,11 @@ class ReadRate(object):
         for i in rev_list: 
             var.k_fun[i] = lambda temp, mm, i=i: var.k_fun[i-1](temp, mm)/chem_funs.Gibbs(i-1,temp)
             var.k[i] = var.k[i-1]/chem_funs.Gibbs(i-1,Tco)
-       
+            
+            if np.any(var.k[i]>1.e-10):
+                print ('R' + str(i) )
+                print (np.amax(var.k[i]))
+                
         return var
         
     
@@ -173,6 +181,106 @@ class ReadRate(object):
         for i in vulcan_cfg.remove_list:
             var.k[i] = np.repeat(0,nz)
             var.k_fun[i] = lambda temp, mm, i=i: np.repeat(0,nz)
+            
+        return var
+        
+    def read_rateFun(self, var):
+        '''
+        Reading in the reaction network and returning only the functions (k_fun)
+        Used for pathway analysis
+        '''
+        
+        Rf, Rindx, a, n, E, a_inf, n_inf, E_inf, k_fun, kinf_fun, k_fun_new = \
+        var.Rf, var.Rindx, var.a, var.n, var.E, var.a_inf, var.n_inf, var.E_inf, var.k_fun, var.kinf_fun,  var.k_fun_new
+        
+        i = self.i
+        re_tri, re_tri_k0 = self.re_tri, self.re_tri_k0
+        list_tri = self.list_tri
+        
+        special_re = False
+               
+        with open(vulcan_cfg.network) as f:
+            for line in f.readlines():
+                
+                # switch to 3-body and dissociation reations 
+                if line.startswith("# 3-body"): 
+                    re_tri = True
+                    
+                if line.startswith("# 3-body reactions without high-pressure rates"):
+                    re_tri_k0 = True
+                    
+                if line.startswith("# special"): 
+                    special_re = True # switch to reactions with special forms (hard coded)                   
+                    
+                # skip common lines and blank lines
+                # ========================================================================================
+                if not line.startswith("#") and line.strip() and special_re == False: # if not starts
+                    
+                    Rf[i] = line.partition('[')[-1].rpartition(']')[0].strip()
+                    li = line.partition(']')[-1].strip()
+                    columns = li.split()
+                    Rindx[i] = int(line.partition('[')[0].strip())
+                              
+                    a[i] = float(columns[0])
+                    n[i] = float(columns[1])
+                    E[i] = float(columns[2])
+                
+                    # switching to trimolecular reactions (len(columns) > 3 for those with high-P limit rates)   
+                    if re_tri == True and re_tri_k0 == False:
+                        a_inf[i] = float(columns[3])
+                        n_inf[i] = float(columns[4])
+                        E_inf[i] = float(columns[5])
+                        list_tri.append(i) 
+                    
+                    if columns[-1].strip() == 'He': re_He = i
+                    elif columns[-1].strip() == 'ex1': re_CH3OH = i
+                
+                    # Note: make the defaut i=i
+                    k_fun[i] = lambda temp, mm, i=i: a[i] *temp**n[i] * np.exp(-E[i]/temp)
+                    
+                    
+                    # for 3-body reactions, also calculating k_inf
+                    if re_tri == True and len(columns)>=6:
+          
+                        kinf_fun[i] = lambda temp, i=i: a_inf[i] *temp**n_inf[i] * np.exp(-E_inf[i]/temp)
+                        k_fun_new[i] = lambda temp, mm, i=i: (a[i] *temp**n[i] * np.exp(-E[i]/temp))/(1 + (a[i] *temp**n[i] * np.exp(-E[i]/temp))*mm/(a_inf[i] *temp**n_inf[i] * np.exp(-E_inf[i]/temp)) ) 
+                        
+                    i += 2
+                    # end if not 
+                 # ========================================================================================    
+                elif special_re == True and line.strip() and not line.startswith("#"):
+
+                    Rindx[i] = int(line.partition('[')[0].strip())
+                    Rf[i] = line.partition('[')[-1].rpartition(']')[0].strip()
+                
+                    if Rf[i] == 'OH + CH3 + M -> CH3OH + M':
+                        print ('Using special form for the reaction: ' + Rf[i])
+                        k_fun[i] = lambda temp, mm, i=i: 1.932E3 *temp**-9.88 *np.exp(-7544./temp) + 5.109E-11*temp**-6.25 *np.exp(-1433./temp)
+                        kinf_fun[i] = lambda temp, mm, i=i: 1.031E-10 * temp**-0.018 *np.exp(16.74/temp)
+                        k_fun_new[i] = lambda temp, mm, i=i: (1.932E3 *temp**-9.88 *np.exp(-7544./temp) + 5.109E-11*temp**-6.25 *np.exp(-1433./temp))/\
+                        (1 + (1.932E3 *temp**-9.88 *np.exp(-7544./temp) + 5.109E-11*temp**-6.25 *np.exp(-1433./temp)) * mm / (1.031E-10 * temp**-0.018 *np.exp(16.74/temp)) )
+                    
+                    i += 2
+
+        k_fun.update(k_fun_new)
+    
+        # store k_fun into data_var
+        var.k_fun = k_fun
+        var.kinf_fun = kinf_fun
+
+        return var
+        
+    def rev_rateFun(self, var):
+        '''
+        Revarsing only the functions of forward rates (k_fun) and the T, P values (at the examined level)
+        Used for pathway analysis
+        '''
+        
+        rev_list = range(2,nr+1,2)
+                
+        # reversing rates and storing into data_var
+        for i in rev_list: 
+            var.k_fun[i] = lambda temp, mm, i=i: var.k_fun[i-1](temp, mm)/chem_funs.Gibbs(i-1,temp)
             
         return var
         
@@ -235,6 +343,10 @@ class Integration(object):
         
         # calculating mu (mean molecular weight)
         data_atm = make_atm.mean_mass(var, data_atm, ni)
+        
+        # fixed mu
+        # if vulcan_cfg.use_const_mu == True: data_atm.mu = vulcan_cfg.const_mu
+        
         data_atm.Hp = kb*data_atm.Tco/(data_atm.mu/Navo*g)
         
         # calculating the pressure at interface
@@ -274,33 +386,44 @@ class Integration(object):
         '''
         funtion returns TRUE if the convergence condition is satisfied
         '''
-        st_factor, mtol_conv, atol, yconv_cri, slope_cri = vulcan_cfg.st_factor, vulcan_cfg.mtol_conv, vulcan_cfg.atol, vulcan_cfg.yconv_cri, vulcan_cfg.slope_cri
+        st_factor, mtol_conv, atol, yconv_cri, slope_cri, slope_min, yconv_min = \
+        vulcan_cfg.st_factor, vulcan_cfg.mtol_conv, vulcan_cfg.atol, vulcan_cfg.yconv_cri, vulcan_cfg.slope_cri, vulcan_cfg.slope_min, vulcan_cfg.yconv_min
         y, ymix, ymix_time, t_time = var.y.copy(), var.ymix.copy(), var.ymix_time, var.t_time
         count = para.count
         
         # if t < trun_min: indx = -100
         indx = np.abs(t_time-var.t*st_factor).argmin()   
      
-        if indx == para.count-1: indx-=1  #Important!! For dt larger than half of the runtime (count-1 is the last one) 
-        longdy = np.abs(ymix_time[count-1] - ymix_time[indx])
+        if indx == para.count-1: 
+            indx-=1  #Important!! For dt larger than half of the runtime (count-1 is the last one) 
+            
+        longdy = np.abs(ymix_time[-1] - ymix_time[indx])
         longdy[ymix < mtol_conv] = 0
         longdy[y < atol] = 0 
+        
+        # Don't check the boundaries
+        longdy[0] = 0
+        longdy[-1] = 0
+        
         indx_max = np.nanargmax(longdy/ymix)
         longdy = np.amax( longdy[ymix>0]/ymix[ymix>0] )
         longdydt = longdy/(t_time[-1]-t_time[indx])
         # store longdy and longdydt
         var.longdy, var.longdydt = longdy, longdydt
-
-        if longdy < yconv_cri and longdydt < slope_cri: 
+        
+        if para.count % print_freq==0: print ('from... ' + str(indx_max/ni) + ' , ' + species[indx_max%ni])
+        
+        if longdy < yconv_cri and longdydt < slope_cri or longdy < yconv_min and longdydt < slope_min: 
             return True
         return False
     
     def stop(self, var, para):
         '''
         This function is 
-        '''
+        '''  
         if var.t > vulcan_cfg.trun_min and para.count > vulcan_cfg.count_min and self.conv(var, para):
-            print ('Integration successful with ' + str(para.count) + ' steps and long dy, long dydt = ' + str(var.longdy) + ' ,' + str(var.longdydt) + '\nContinue with quasi-steady runs...') 
+            print ('Integration successful at ' + '{:1.2E}'.format(var.t) + ' with ' + str(para.count) + ' steps and long dy, long dydt = ' + str(var.longdy) + ' ,' + str(var.longdydt)  )
+        #+ '\nContinue with quasi-steady runs...') 
             para.end_case = 1
             return True
         elif var.t > vulcan_cfg.runtime:
@@ -321,7 +444,7 @@ class Integration(object):
         tmp = list(var.y)
         # y_time is initially []   
         var.y_time.append(tmp)
-        var.ymix_time.append(var.ymix)
+        var.ymix_time.append(var.ymix.copy())
         var.t_time.append(var.t)
                 
         # var.dt_time.append(var.dt)
@@ -402,13 +525,13 @@ class ODESolver(object):
         self.mtol = vulcan_cfg.mtol
         self.atol = vulcan_cfg.atol       
         
-    def diffdf(self, var, atm):  # input y,dzi,Kzz
+    def diffdf(self, y, atm):  # input y,dzi,Kzz
         """
         function of eddy diffusion with zero-flux boundary conditions and non-uniform grids (dzi)
         in the form of Aj*y_j + Bj+1*y_j+1 + Cj-1*y_j-1
         """
         
-        y = var.y.copy()
+        y = y.copy()
         ysum = np.sum(y, axis=1)
         dzi = atm.dzi.copy()
         Kzz = atm.Kzz.copy()
@@ -466,22 +589,58 @@ class ODESolver(object):
 
         return dfdy
     
-          
+    def jac_tot_fixbot(self, var, atm): # input y,dzi,Kzz
+        """
+        jacobian matrix for dn/dt + dphi/dz = P - L (including diffusion)
+        zero-flux BC:  1st derivitive of y is zero
+        """
+        
+        y = var.y.copy()
+        ysum = np.sum(y, axis=1)
+        dzi = atm.dzi.copy()
+        Kzz = atm.Kzz.copy()
+        
+        dfdy = achemjac(y, atm.M, var.k)
+        j_indx = []
+        
+        for j in range(nz):
+            j_indx.append( np.arange(j*ni,j*ni+ni) )
+
+        for j in range(1,nz-1): 
+            # excluding the buttom and the top cell
+            # at j level consists of ni species 
+            dfdy[j_indx[j], j_indx[j]] +=  -2./(dzi[j-1] + dzi[j])*( Kzz[j]/dzi[j]*(ysum[j+1]+ysum[j])/2. + Kzz[j-1]/dzi[j-1]*(ysum[j-1]+ysum[j])/2. ) /ysum[j] 
+            dfdy[j_indx[j], j_indx[j+1]] += 2./(dzi[j-1] + dzi[j])*( Kzz[j]/dzi[j]*(ysum[j+1]+ysum[j])/(2.*ysum[j+1]) )
+            dfdy[j_indx[j], j_indx[j-1]] += 2./(dzi[j-1] + dzi[j])*( Kzz[j-1]/dzi[j-1]*(ysum[j-1]+ysum[j])/(2.*ysum[j-1]) )
+            
+        #dfdy[j_indx[0], j_indx[0]] += -1./(dzi[0])*(Kzz[0]/dzi[0]) * (ysum[1]+ysum[0])/(2*ysum[0])
+        dfdy[:, j_indx[0]] = 0.
+        
+        dfdy[j_indx[0], j_indx[1]] += 1./(dzi[0])*(Kzz[0]/dzi[0]) * (ysum[1]+ysum[0])/(2*ysum[1])   
+        dfdy[j_indx[nz-1], j_indx[nz-1]] += -1./(dzi[nz-2])*(Kzz[nz-2]/dzi[nz-2]) *(ysum[(nz-1)-1]+ysum[nz-1])/(2.*ysum[nz-1])   
+        dfdy[j_indx[nz-1], j_indx[(nz-1)-1]] += 1./(dzi[nz-2])*(Kzz[nz-2]/dzi[nz-2])* (ysum[(nz-1)-1]+ysum[nz-1])/(2.*ysum[(nz-1)-1])  
+
+        return dfdy
+             
     def clip(self, var, para, pos_cut = vulcan_cfg.pos_cut, nega_cut = vulcan_cfg.nega_cut):
         '''
         function to clip samll and negative values
         and to calculate the particle loss
         '''
-        y = var.y
+        y, ymix = var.y, var.ymix.copy()
          
         para.small_y += np.abs(np.sum(y[np.logical_and(y<pos_cut, y>=0)]))
         para.nega_y += np.abs(np.sum(y[np.logical_and(y>nega_cut, y<=0)]))
         y[np.logical_and(y<pos_cut, y>=nega_cut)] = 0.
         
+        # Also setting y=0 when ymix<mtol
+        y[np.logical_and(ymix<self.mtol, y<0)] = 0.
+        
         var = self.loss(var)
         
-        # store y
+        # store y and ymix
         var.y = y
+        var.ymix = y/np.vstack(np.sum(y,axis=1))
         
         return var , para
         
@@ -528,8 +687,7 @@ class ODESolver(object):
         if var.dt < vulcan_cfg.dt_min:
             var.dt = vulcan_cfg.dt_min
             var.y[var.y<0] = 0. # clipping of negative values
-            if vulcan_cfg.use_print_prog == True:
-                print ('Keep producing negative values! Clipping negative solutions and moving on!')
+            print ('Keep producing negative values! Clipping negative solutions and moving on!')
             return True
         
         return False
@@ -621,7 +779,7 @@ class Ros2(ODESolver):
         # last 2 columns
         for ne,i in enumerate(range(nn*nb-2*nb,nn*nb)):
             ab[:(2*bw+1 -ne),i] = a[-(2*bw+1 -ne):,i]
-
+            
         return (ab, bw)
     
        
@@ -630,6 +788,9 @@ class Ros2(ODESolver):
         2nd order Rosenbrock [Verwer et al. 1997] with banded-matrix solver
         """
         y, ymix, h, k = var.y, var.ymix, var.dt, var.k
+        
+        ymix_bot = np.copy(ymix[0])
+        
         M, dzi, Kzz = atm.M, atm.dzi, atm.Kzz
 
         diffdf = self.diffdf
@@ -637,7 +798,7 @@ class Ros2(ODESolver):
     
         r = 1. + 1./2.**0.5
     
-        df = chemdf(y,M,k).flatten() + diffdf(var, atm).flatten()
+        df = chemdf(y,M,k).flatten() + diffdf(y, atm).flatten()
         dfdy = jac_tot(var, atm)
   
         lhs = 1./(r*h)*np.identity(ni*nz) - dfdy
@@ -646,7 +807,7 @@ class Ros2(ODESolver):
         k1 = k1_flat.reshape(y.shape)
 
         yk2 = y + k1/r
-        df = chemdf(yk2,M,k).flatten() + diffdf(var, atm).flatten()
+        df = chemdf(yk2,M,k).flatten() + diffdf(y, atm).flatten()
 
         rhs = df - 2./(r*h)*k1_flat
         k2 = scipy.linalg.solve_banded((bw,bw),lhs_b,rhs)
@@ -658,24 +819,82 @@ class Ros2(ODESolver):
         delta[ymix < self.mtol] = 0
         delta[sol < self.atol] = 0
         delta = np.amax( delta[sol>0]/sol[sol>0] )
-    
+        
         var.y = sol
         var.ymix = var.y/np.vstack(np.sum(var.y,axis=1))
         para.delta = delta
     
         return var, para  
+    
+    def solver_fixbot(self, var, atm, para):
+        """
+        2nd order Rosenbrock [Verwer et al. 1997] with banded-matrix solver and fixxed bottom boundary
+        """
+        y, ymix, h, k = var.y, var.ymix, var.dt, var.k
+        M, dzi, Kzz = atm.M, atm.dzi, atm.Kzz
         
+        bottom = np.copy(ymix[0])
+        
+        #H_copy = np.copy(ymix[:,species.index('H')])
+        #H2_copy = np.copy(ymix[:,species.index('H2')])
+
+        diffdf = self.diffdf
+        jac_tot = self.jac_tot_fixbot
+    
+        r = 1. + 1./2.**0.5
+    
+        df = chemdf(y,M,k) + diffdf(y, atm)
+        df[0] = 0.
+        df = df.flatten()
+        
+        dfdy = jac_tot(var, atm)
+  
+        lhs = 1./(r*h)*np.identity(ni*nz) - dfdy
+        lhs_b, bw = self.store_bandM(lhs,ni,nz)
+        k1_flat = scipy.linalg.solve_banded((bw,bw),lhs_b,df)
+        k1 = k1_flat.reshape(y.shape)
+
+        yk2 = y + k1/r
+        df = chemdf(yk2,M,k) + diffdf(y, atm)
+        df[0] = 0.
+        df = df.flatten()
+        
+        rhs = df - 2./(r*h)*k1_flat
+        k2 = scipy.linalg.solve_banded((bw,bw),lhs_b,rhs)
+        k2 = k2.reshape(y.shape)
+
+        sol = y + 3./(2.*r)*k1 + 1/(2.*r)*k2    
+        
+        #sol[:,species.index('H') ] = H_copy*atm.n_0
+        #sol[:,species.index('H2') ] = H2_copy*atm.n_0
+        
+        sol[0] = bottom*atm.n_0[0]  
+          
+        delta = np.abs(sol-yk2)
+        delta[ymix < self.mtol] = 0
+        delta[sol < self.atol] = 0
+        delta = np.amax( delta[sol>0]/sol[sol>0] )
+
+        var.y = sol
+        var.ymix = var.y/np.vstack(np.sum(var.y,axis=1))
+        para.delta = delta
+    
+        return var, para
     
     def one_step(self, var, atm, para):
         
         while True:
-           var, para = self.solver(var, atm, para)
-           
-           # clipping small negative values and also calculating atomic loss (atom_loss)  
-           var , para = self.clip(var, para) 
             
-           if self.step_ok(var, para): break
-           elif self.step_reject(var, para): break # giving up and moving on
+            if vulcan_cfg.use_fix_bot == True:
+                var, para = self.solver_fixbot(var, atm, para)
+            else:        
+                var, para = self.solver(var, atm, para)
+           
+            # clipping small negative values and also calculating atomic loss (atom_loss)  
+            var , para = self.clip(var, para) 
+            
+            if self.step_ok(var, para): break
+            elif self.step_reject(var, para): break # giving up and moving on
                
         return var, para                    
         
@@ -683,7 +902,6 @@ class Ros2(ODESolver):
         """
         step-size control by delta(truncation error) for the Rosenbrock method
         """
-        y = var.y
         h = var.dt
         delta = para.delta
         rtol = vulcan_cfg.rtol
@@ -713,12 +931,13 @@ class Output(object):
         if not os.path.exists(plot_dir): os.makedirs(plot_dir)
         
         if os.path.isfile(output_dir+out_name):
+            print ("Warning... The output file: " + str(out_name) + " already exists.\n")
             # Fix Python 3.x and 2.x.
-            try: input = raw_input
-            except NameError: pass
-            input("  The output file: " + str(out_name) + " already exists.\n"
-                      "  Press enter to overwrite the existing file,\n"
-                      "  or Ctrl-Z and Return to leave and choose a different out_name in vulcan_cfg.")
+            # try: input = raw_input
+            # except NameError: pass
+            # input("  The output file: " + str(out_name) + " already exists.\n"
+            #           "  Press enter to overwrite the existing file,\n"
+            #           "  or Ctrl-Z and Return to leave and choose a different out_name in vulcan_cfg.")
         
     def print_prog(self, var):
         print ('time: ' +str("{:.2e}".format(var.t)) + '  and dt= ' + str(var.dt) )
@@ -759,6 +978,8 @@ class Output(object):
             self.plot_evo(var)
         if vulcan_cfg.use_plot_end == True:
             self.plot_end(var, atm, para)
+        else: plt.close()
+        
         
         for key in ['dy_time', 'dydt_time', 'ymix_time',  'y_time', 't_time', 'dt_time', 'atom_loss_time' ]:
             np_slicing = getattr(var, key)[::fq]
@@ -798,7 +1019,7 @@ class Output(object):
         plt.gca().set_yscale('log') 
         plt.gca().invert_yaxis() 
         plt.xlim(1.E-20, 1.)
-        plt.ylim((1.E3,1.E-4))
+        plt.ylim((vulcan_cfg.P_b/1.E6,vulcan_cfg.P_t/1.E6))
         plt.legend(frameon=0, prop={'size':14}, loc=3)
         plt.xlabel("Mixing Ratios")
         plt.ylabel("Pressure (bar)")
@@ -823,7 +1044,7 @@ class Output(object):
         plt.gca().set_yscale('log') 
         plt.gca().invert_yaxis() 
         plt.xlim(1.E-20, 1.)
-        plt.ylim((1.E3,1.E-4))
+        plt.ylim((vulcan_cfg.P_b/1.E6,vulcan_cfg.P_t/1.E6))
         plt.legend(frameon=0, prop={'size':14}, loc=3)
         plt.xlabel("Mixing Ratios")
         plt.ylabel("Pressure (bar)")
@@ -835,8 +1056,36 @@ class Output(object):
             plot = Image.open(plot_dir + 'mix.png')
             plot.show()
             plt.close()
-            
+           
     def plot_evo(self, var, plot_j=-1, dn=1):
+        
+        plot_spec = vulcan_cfg.plot_spec
+        plot_dir = vulcan_cfg.plot_dir
+        plt.figure('evolution')
+    
+        for i,sp in enumerate(vulcan_cfg.plot_spec):
+            plt.plot(var.t_time[::dn], var.ymix_time[::dn,plot_j,species.index(sp)],c = plt.cm.rainbow(float(i)/len(plot_spec)),label=sp)
+
+        plt.gca().set_xscale('log')       
+        plt.gca().set_yscale('log') 
+        plt.xlabel('time')
+        plt.ylabel('mixing ratios')
+        plt.ylim((1.E-30,1.))
+        plt.legend(frameon=0, prop={'size':14}, loc='best')
+        plt.savefig(plot_dir + 'evo.png')
+        plt.close()
+        if vulcan_cfg.use_PIL == True:
+            plot = Image.open(plot_dir + 'evo.png')
+            plot.show()
+            #plt.close()
+        # else: plt.show(block = False)
+    
+    def plot_evo_inter(self, var, plot_j=-1, dn=1):
+        '''
+        plot the evolution when the code is interrupted
+        '''
+        var.t_time = np.array(var.t_time)
+        var.ymix_time = np.array(var.ymix_time)
         
         plot_spec = vulcan_cfg.plot_spec
         plot_dir = vulcan_cfg.plot_dir
@@ -856,8 +1105,7 @@ class Output(object):
             plot = Image.open(plot_dir + 'evo.png')
             plot.show()
             plt.close()
-        # else: plt.show(block = False)
-        
+               
     def plot_TP(self, atm):
         
         plot_dir = vulcan_cfg.plot_dir
@@ -865,6 +1113,7 @@ class Output(object):
         plt.figure('TP')
         plt.semilogy( atm.Tco, atm.pco/1.e6, c='black')
         plt.gca().invert_yaxis()
+        plt.ylim((vulcan_cfg.P_b/1.E6,vulcan_cfg.P_t/1.E6))
         plt.xlabel("Temperature (K)")
         plt.ylabel("Pressure (bar)")
         plot_name = plot_dir + 'TP.png'

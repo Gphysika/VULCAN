@@ -47,7 +47,7 @@ def read_network():
                 # else:
                 #     Rindx[i] = int(line.partition('[')[0].strip())
                 #     # updating the numerical index in the network (1, 3, ...)
-                line = '{:4d}\t{:s}'.format(i, "".join(line.partition('[')[1:]))
+                line = '{:3d}\t{:s}'.format(i, "".join(line.partition('[')[1:]))
                 
                 ofstr += re_label + str(i) + '\n'
                 ofstr +=  Rf[i] + '\n'
@@ -84,6 +84,12 @@ def make_chemdf(re_table, ofname):
 
     reac_list = []
     rate_dict = {}
+    sp_rate = {} # to store each term of prod and loss individually
+    re_sp_dic = {}
+    re_reac_prod = {} # store the products and the reactants for reaction j (without M)
+    re_reac_prod_wM = {} # same as re_reac_prod but including M
+    re_dict_str = 're_dict = {'
+    re_wM_dict_str = 're_wM_dict = {' # including M
 
     for line in re_table.splitlines():
         '''
@@ -104,6 +110,7 @@ def make_chemdf(re_table, ofname):
             rate_str = ""
             v_str = ""
             v_exp = ''  # to store the explicit expression of v_i (for jacobian)
+            # sp_rate = [] # to store species
             # R = True:reactants  R = False:products
             R = True    # if reads '->'
             N = False
@@ -132,6 +139,10 @@ def make_chemdf(re_table, ofname):
                     chem_dict.update({mol : i})
                     reac_dict.update({chem_dict[mol] : ""})
                     exp_reac_dict.update({chem_dict[mol] : ""})
+                    
+                    # creating a new list for new species
+                    sp_rate[mol] = []
+                    
                 # if R is true, it's the reactants
                 if R:
                     reac.append(mol_list)
@@ -151,7 +162,24 @@ def make_chemdf(re_table, ofname):
             reac_noM = [ele for ele in reac if not ele[1]=='M' ]
             prod_noM = [ele for ele in prod if not ele[1]=='M' ]
             reac_args_noM = [ele for ele in reac_args if not ele=='M' ]
-        
+            
+            # store the products and the reactants in the 1st and 2nd element for reaction j (without M)
+            re_reac_prod[j] = [ [ele[1] for ele in reac if not ele[1]=='M' ], [ele[1] for ele in prod if not ele[1]=='M' ] ]           
+            # store the products and the reactants in the 1st and 2nd element for reaction j (with M)
+            re_reac_prod_wM[j] = [ [ele[1] for ele in reac], [ele[1] for ele in prod] ]
+            # skip line
+            if j%51 == 0: 
+                re_dict_str += '\n'
+                re_wM_dict_str += '\n'
+                
+            re_dict_str += str(j) + ':' + str(re_reac_prod[j]) + ', ' 
+            # reverse the list "re_reac_prod[j]" for the reverse reaction
+            re_dict_str += str(j+1) + ':' + str(re_reac_prod[j][::-1]) + ', '
+            # with M
+            re_wM_dict_str += str(j) + ':' + str(re_reac_prod_wM[j]) + ', '
+            # reverse
+            re_wM_dict_str += str(j+1) + ':' + str(re_reac_prod_wM[j][::-1]) + ', '
+            
             for term in [ele for ele in reac_args if not ele=='M' ] :
                 rate_str += "y[" + str(chem_dict[term]) + "], "  
             rate_str = rate_str[0:-2] + ")"
@@ -169,33 +197,52 @@ def make_chemdf(re_table, ofname):
                     else:
                         v_exp += 'y[' + str(chem_dict[term[1]]) + ']*'              
             v_exp = v_exp[0:-1]  # Delete the last '*'
-
+            fv_exp = v_exp
+            
             v_exp += ' - k[' + str(j+1) + ']*'
+            b_exp = ' k[' + str(j+1) + ']*'
+            
             for term in prod:
                 if term[0]!=1:
                     if term[1]== 'M':
                         v_exp += term[1] + "**" + str(term[0]) + '*'
+                        b_exp += term[1] + "**" + str(term[0]) + '*'
                     else:
                         v_exp += 'y[' + str(chem_dict[term[1]]) + ']' + "**" + str(term[0]) + '*'
+                        b_exp += 'y[' + str(chem_dict[term[1]]) + ']' + "**" + str(term[0]) + '*'
                 else:
                     if term[1]== 'M':
                         v_exp += term[1] + '*'
+                        b_exp += term[1] + '*'
                     else:
                         v_exp += 'y[' + str(chem_dict[term[1]]) + ']*'
+                        b_exp += 'y[' + str(chem_dict[term[1]]) + ']*'
             v_exp = v_exp[0:-1]  # Delete the last '*'
+            rv_exp = b_exp[0:-1]
                 
             for term in reac_noM:
+                                
                 # term[0] os the stoi-number of the species
-                reac_dict[chem_dict[term[1]]] += " -" + str(term[0]) + "*" + rate_str     
+                reac_dict[chem_dict[term[1]]] += " -" + str(term[0]) + "*" + rate_str
+                
+                # for each term of prod and loss individually
+                sp_rate[term[1]].append( " -" + str(term[0]) + "*" + fv_exp )
+                sp_rate[term[1]].append( " +" + str(term[0]) + "*" + rv_exp )
+                     
                 if term[0]==1:
                     exp_reac_dict[chem_dict[term[1]]] += " -" + "(" + v_exp + ')'
                     count += 1
                 else:
                     exp_reac_dict[chem_dict[term[1]]] += " -" + str(term[0]) + "*(" + v_exp + ')'
                     count += 1
+                    
+                    
             
             for term in prod_noM:
-                reac_dict[chem_dict[term[1]]] += " +" + str(term[0]) + "*" + rate_str           
+                reac_dict[chem_dict[term[1]]] += " +" + str(term[0]) + "*" + rate_str
+                sp_rate[term[1]].append( " +" + str(term[0]) + "*" + fv_exp )
+                sp_rate[term[1]].append( " -" + str(term[0]) + "*" + rv_exp )
+                           
                 if term[0]==1:
                     exp_reac_dict[chem_dict[term[1]]] += " +" + "(" + v_exp + ')'
                     count += 1
@@ -253,7 +300,11 @@ def make_chemdf(re_table, ofname):
             rate_exp = rate_exp[0:-1]  # Delete the last '*'
             rate_dict[j+1] = rate_exp 
 
-
+    re_dict_str = re_dict_str[:-2] # delet the last ','
+    re_dict_str += '}\n'
+    re_wM_dict_str = re_wM_dict_str[:-2]
+    re_wM_dict_str += '}\n'
+    #print re_dict_str
     # save output
     chem_dict_r = {}
     spec_list = []
@@ -282,6 +333,9 @@ def make_chemdf(re_table, ofname):
     ofstr += '\n# the total number of reactions (forward and reverse)'
     ofstr += '\nnr = ' + str(len(rate_dict.keys()))
     
+    ofstr += '\n\n# store the products and the reactants in the 1st and the 2nd element for reaction j (without M)\n' + re_dict_str
+    ofstr += '\n\n# store the products and the reactants in the 1st and the 2nd element for reaction j (with M)\n' + re_wM_dict_str
+    
     ost = '\n\ndef chemdf(y, M, k): \n' # Note: making M as input!!!
     ost += '\t y = np.transpose(y) \n'.expandtabs(3)
     ost += '\t dydt = np.zeros(shape=y.shape) \n'.expandtabs(3)
@@ -300,13 +354,39 @@ def make_chemdf(re_table, ofname):
     ofstr += ost
 
     for term in reac_list:
-        ofstr += term + "\n\n"
-
+        ofstr += term + "\n\n\n"
+        
+    # for rate analysis
+    ost = 'def rate_ans(sp): \n'
+    ost += '\t rate_str = {}\n'.expandtabs(3)
+    ost += '\t re_sp_dic = {}\n'.expandtabs(3)
+    for sp in sp_rate:
+        ost += '    rate_str["' + sp + '"] = ['
+        re_sp_dic[sp] = []    
+        for i in sp_rate[sp]:
+            ost += i
+            ost += ','
+            start, end = False, False
+            for n,letter in enumerate(i):
+                if letter == 'k' and start==False: 
+                    k_start=n+2
+                    start = True
+                elif letter == ']' and start==True and end==False: 
+                    k_end = n
+                    end = True
+                    re_sp_dic[sp].append(int(i[k_start:k_end]))
+        
+        ost = ost[0:-1] 
+        ost += ']'   
+        ost += '\n'
+    ost += '\t return np.array(rate_str[sp]) \n\n'.expandtabs(3)
+    ofstr += ost
+    
     with open(ofname, "w") as of:
         of.write(ofstr)
-        
-    # return (ni, nr)
-    return (len(chem_dict.keys()), len(rate_dict.keys()))
+    
+    # return (ni, nr, the list of species) 
+    return (len(chem_dict.keys()), len(rate_dict.keys()), chem_dict.keys())
         
 
                
@@ -562,11 +642,47 @@ def make_jac(ni, nr, ofname):
     # save the output function
     with open (ofname, 'a+') as f: f.write(jstr)
     
+# def make_rate_ans(spec_list, ofname):
+#     '''
+#     make a function for showing individually every production and loss term for each species
+#     '''
+#
+#     ost = 'def rate_ans(sp): \n'
+#     ost += '\t rate_str = {}\n'.expandtabs(3)
+#     ost += '\t re_sp_dic = {}\n'.expandtabs(3)
+#
+#     re_sp_dic = {}
+#     for sp in spec_list:
+#         ost += '    rate_str["'+sp+'"] = ['
+#         re_sp_dic[sp] = []
+#         for i in sp_rate2[sp]:
+#             ost += i
+#             ost += ','
+#             start, end = False, False
+#             for n,letter in enumerate(i):
+#                 if letter == 'k' and start==False:
+#                     k_start=n+2
+#                     start = True
+#                 elif letter == ']' and start==True and end==False:
+#                     k_end = n
+#                     end = True
+#                     re_sp_dic[sp].append(int(i[k_start:k_end]))
+#
+#         ost = ost[0:-1]
+#         ost += ']'
+#         ost += '\n'
+#     ost += '\t return np.array(rate_str[sp]) \n\n'.expandtabs(3)
+#
+#     # save the output function
+#     with open (ofname, 'a+') as f: f.write(ost)
+    
 
 if __name__ == "__main__":   
     re_table = read_network()
-    (ni, nr) = make_chemdf(re_table, ofname)
+    (ni, nr, species) = make_chemdf(re_table, ofname)
     make_Gibbs(re_table, gibbs_text, ofname)
     # import the "ofname" module as chemistry for make_jac to read df
     chemistry = __import__(ofname[:-3])
     make_jac(ni, nr, ofname)
+    #make_rate_ans(species, ofname)
+    

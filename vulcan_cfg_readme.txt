@@ -25,8 +25,8 @@ atom_list = ['H', 'O', 'C', 'He'] : included elements (list)
 O_H = 6.0618E-4 : O/H ratio (float)
 C_H = 2.7761E-4 : C/H ratio (float)
 He_H = 0.09691  : He/H ratio (float)
-ini_mix = 'EQ'  : defines the way to set the initial composition, can be 'EQ' or 'CH4'
-				  for chemical equilibrium (major species) or all carbon starting in CH4, respectively
+ini_mix = 'EQ'  : defines the way to set the initial composition, can be 'EQ', 'CH4', or 'CO'
+				  for chemical equilibrium (major species), all carbon in CH4, or all carbon in CO respectively
 
 # ====== Reactions to be switched off  ======
 remove_list = [] : the reactions (by the index in the chemical network) to be set to zero

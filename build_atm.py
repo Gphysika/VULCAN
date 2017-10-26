@@ -3,6 +3,8 @@ from numpy import polynomial
 import scipy
 from scipy import interpolate
 import scipy.optimize as sop
+import subprocess
+
 import vulcan_cfg
 from phy_const import kb, Navo
 from vulcan_cfg import nz
@@ -22,43 +24,42 @@ class InitialAbun(object):
     """
     
     def __init__(self):
-        self.ini_m = [0.7,0.1,0.1,0.1] # initial guess
-        self.EQ_ini_file = vulcan_cfg.EQ_ini_file
-        
+        self.ini_m = [0.9,0.1,0.,0.,0] # initial guess
         self.atom_list = vulcan_cfg.atom_list
 
-    def abun_ch4(self, x):
+    def abun_lowT(self, x):
         """
-        calculating the initial mixing ratios of the following 4 molecules (with CH4) 
+        calculating the initial mixing ratios of the following 5 molecules (with CH4)
         satisfying the assigned elemental abundance
-        x1:H2 x2:H2O x3:CH4 x4:He
+        x1:H2 x2:H2O x3:CH4 x4:He x5:N2
         """
-        O_H, C_H, He_H = vulcan_cfg.O_H, vulcan_cfg.C_H, vulcan_cfg.He_H
-        x1,x2,x3,x4 = x
+        O_H, C_H, He_H, N_H = vulcan_cfg.O_H, vulcan_cfg.C_H, vulcan_cfg.He_H, vulcan_cfg.N_H
+        x1,x2,x3,x4, x5 = x
         f1 = x1+x2+x3+x4-1.
         f2 = x2 - (2*x1+2*x2+4*x3)*O_H
         f3 = x3 - (2*x1+2*x2+4*x3)*C_H
         f4 = x4 - (2*x1+2*x2+4*x3)*He_H
-        return f1,f2,f3,f4
-    
+        f5 = x5*2 - (2*x1+2*x2+4*x3)*N_H
+        return f1,f2,f3,f4,f5
+
     def abund_eq9(self, sp_ini, tp, pp):
         '''
         Using the 6-molecule function to solve 5th order polynomial equation for CO mixing ratio (Heng & Tsai 2016).
         Besides the 6 molecules, several additional molecules are non self-consistently "post-processed."
         '''
-        
+
         from chem_funs import gibbs_sp
-        
+
         n_eq, mix_eq = {}, {}
-        n_o, n_c, n_n = vulcan_cfg.O_H, vulcan_cfg.C_H, 0.
-               
+        n_o, n_c, n_n = vulcan_cfg.O_H, vulcan_cfg.C_H, vulcan_cfg.N_H
+
         kk1 = lambda T, pbar: np.exp( -( gibbs_sp('CO',T) + 3*gibbs_sp('H2',T) -1*gibbs_sp('CH4',T)-1*gibbs_sp('H2O',T) ) ) * (pbar)**-2
         kk2 = lambda T: np.exp( -( gibbs_sp('CO',T) + gibbs_sp('H2O',T) -1*gibbs_sp('CO2',T) -1*gibbs_sp('H2',T) ) )
         kk3 = lambda T, pbar: np.exp( -( gibbs_sp('C2H2',T) + 3*gibbs_sp('H2',T) -2*gibbs_sp('CH4',T) ) ) * (pbar)**-2
         kk4 = lambda T, pbar: np.exp( -( gibbs_sp('C2H2',T) + gibbs_sp('H2',T) -gibbs_sp('C2H4',T) ) ) * (pbar)**-1
         kk5 = lambda T, pbar: np.exp( -( gibbs_sp('N2',T) + 3*gibbs_sp('H2',T) -2*gibbs_sp('NH3',T) ) ) * (pbar)**-2
         kk6 = lambda T, pbar: np.exp( -( gibbs_sp('HCN',T) + 3*gibbs_sp('H2',T) -gibbs_sp('NH3',T) -gibbs_sp('CH4',T) ) ) * (pbar)**-2
-     
+
         k1 = kk1(tp,pp)
         k5 = kk5(tp,pp)
         k6 = kk6(tp,pp)
@@ -73,39 +74,50 @@ class InitialAbun(object):
         result = result[result.real > 0.0]
         result = result[result.real < 2.0*n_o]
 
-        try: # multiple positive realroots 
+        try: # multiple positive realroots
             result = result[0]#.real
         except: # for only single positive real root
             pass
         n_eq['CO'] = result.real
-        
+
         # for no root found, meaning the mixing ratio of CO is extreamly low
-        if not n_eq['CO']: 
+        if not n_eq['CO']:
             n_eq['CO']= 0.
             print ('No equilibrium solution found for CO! Setting to zero.')
-              
+
         k2 = kk2(tp)
         k3 = kk3(tp,pp)
         k4 = kk4(tp,pp)
-        
+
         # H2O
         c2 = 1.0/kk2(tp)
         n_eq['H2O'] = (2.0*n_o - n_eq['CO'])/(1.0 + 2.0*c2*n_eq['CO'])
-        
+
         # CH4
         n_eq['CH4'] = n_eq['CO']/k1/n_eq['H2O']
-        
-        # CO2       
+
+        # CO2
         n_eq['CO2'] = n_eq['CO']*n_eq['H2O']/k2
 
         # C2H2
         n_eq['C2H2'] = k3*n_eq['CH4']**2
-        
+
         # C2H4
         n_eq['C2H4'] = n_eq['C2H2']/k4
-        
+
+        # nitrogen species
+        # NH3
+        term1 = 1. + k6*n_eq['CH4']
+        n_eq['NH3'] = ( np.sqrt( term1**2 + 16.*n_n*k5 ) - term1 )/4./k5
+
+        # HCN
+        n_eq['HCN'] =  k6*n_eq['NH3']*n_eq['CH4']
+
+        # N2
+        n_eq['N2'] = k5*n_eq['NH3']*n_eq['NH3']
+
         # non self-consistent "post-processing" for other species
-        
+
         # kk7: C2H2 + 0.5 * H2 -> C2H3
         kk7 = lambda T, pbar: np.exp( -( gibbs_sp('C2H3',T) -gibbs_sp('C2H2',T) -0.5*gibbs_sp('H2',T) ) ) * (pbar)**0.5
         # kk8: C2H2 + 1.5 * H2 -> C2H5
@@ -120,9 +132,9 @@ class InitialAbun(object):
         kk12 = lambda T, pbar: np.exp( -( gibbs_sp('HCO',T) -gibbs_sp('CO',T) -0.5*gibbs_sp('H2',T) ) ) * (pbar)**0.5
         # kk13: CO + H2 -> H2CO
         kk13 = lambda T, pbar: np.exp( -( gibbs_sp('H2CO',T) -gibbs_sp('CO',T) -gibbs_sp('H2',T) ) ) * (pbar)**1
-        
+
         k7, k8, k9, k10, k11, k12, k13 = kk7(tp,pp), kk8(tp,pp), kk9(tp,pp), kk10(tp,pp), kk11(tp,pp), kk12(tp,pp), kk13(tp,pp)
-        
+
         n_eq['C2H3'] = n_eq['C2H2']*k7
         n_eq['C2H5'] = n_eq['C2H2']*k8
         n_eq['C2H6'] = n_eq['C2H2']*k9
@@ -130,56 +142,131 @@ class InitialAbun(object):
         n_eq['CH3OH'] = n_eq['CO']*k11
         n_eq['HCO'] = n_eq['CO']*k12
         n_eq['H2CO'] = n_eq['CO']*k13
-              
-        norm = sum([n_eq[sp] for sp in sp_ini]) + 1. + vulcan_cfg.He_H*2. # 1. is from H2
+
+        norm = sum([n_eq[sp] for sp in sp_ini]) + 1. + 2.*vulcan_cfg.He_H # 1. is from H2
         for sp in sp_ini: # normalizing so that the total mixing ratio equals 1
-            mix_eq[sp] = n_eq[sp]/norm 
+            mix_eq[sp] = n_eq[sp]/norm
         mix_eq['H2'] = 1./norm
         mix_eq['He'] = 2.*vulcan_cfg.He_H/norm
-    
+
         return mix_eq
+
+    def fEQ(self, sp, pres, temp):
+        # IMPORTANT: x:p, y:T because z is in shape of (y,x)
+        '''
+        pres in bar
+        using log pres to interpolate
+        '''
+        fc = self.fc
+        p_fc = np.unique(fc['P'])
+        t_fc = np.unique(fc['T'])
+        f = interpolate.interp2d(np.log10(p_fc), t_fc, fc[sp].reshape((t_fc.size,p_fc.size)), kind='linear')
+        # IMPORTANT: Z must be in shape of (Y,X)
+        return f(np.log10(pres), temp).flatten()   
+
     
     def ini_mol(self):
-        if vulcan_cfg.ini_mix == 'CH4':
-            return np.array(sop.fsolve(self.abun_ch4, self.ini_m))
-        else: 
-            raise ValueError("Unknown assigned ini_mix in vulcan_cfg.py. (see vulcan_cfg_readme.txt for ini_mix)")
-       
-    def ini_y(self, data_var, data_atm): 
-        # initializing the starting mixing ratios from the assigned elemental abundance
+        return np.array(sop.fsolve(self.abun_lowT, self.ini_m))
+
+    
+    def ini_fc(self, data_var, data_atm):
+        # reading-in the default elemental abundances from Lodders 2009
+        with open('fastchem_vulcan/chemistry/elements/element_abundances_lodders.dat' ,'r') as f:
+            new_str = ""
+            ele_list = list(vulcan_cfg.atom_list)
+            ele_list.remove('H')
+            
+            if vulcan_cfg.use_solar == True: 
+                new_str = f.read() # read in as a string
+                print ("Initializing with the default solar abundance.")
+                
+            else: # using costomized elemental abundances
+                print ("Initializing with the customized elemental abundance:")
+                print ("{:4}".format('H') + str('1.'))
+                for line in f.readlines():   
+                        li = line.split()
+                        if li[0] in ele_list:
+                            sp = li[0].strip()
+                            # read-in vulcan_cfg.sp_H
+                            sp_abun = getattr(vulcan_cfg, sp+'_H')
+                            fc_abun = 12. + np.log10(sp_abun)
+                            line = sp + '\t' + "{0:.4f}".format(fc_abun) + '\n'
+                            print ("{:4}".format(sp) + "{0:.4E}".format(sp_abun))
+                        new_str += line
+            
+            # make the new elemental abundance file
+            with open('fastchem_vulcan/chemistry/elements/element_abundances_vulcan.dat', 'w') as f: f.write(new_str)
+            
+        # write a T-P text file for fast_chem
+        with open('fastchem_vulcan/input/vulcan_TP/vulcan_TP.dat' ,'w') as f:
+            ost = ''   
+            for n, p in enumerate(data_atm.pco): # p in bar in fast_chem
+                ost +=  '{:.3e}'.format(p/1.e6) + '\t' + '{:.1f}'.format(data_atm.Tco[n])  + '\n'
+            ost = ost[:-1]
+            f.write(ost)
+        
+        subprocess.call(["./fastchem input/config.input"], shell=True, cwd='fastchem_vulcan/')
+
            
+    def ini_y(self, data_var, data_atm): 
+        # initial mixing ratios of the molecules
+        
+        #ini_mol = self.ini_mol()  
         ini = np.zeros(ni)
         y_ini = data_var.y
         gas_tot = data_atm.M
-    
-        for i in range(nz):
-            
-            if vulcan_cfg.ini_mix == 'EQ':
-                nine_sp = ['CH4', 'CO', 'CO2', 'H2O', 'C2H2', 'C2H4', 'NH3', 'N2', 'HCN', 'C2H4', 'C2H5', 'C2H6'\
-            , 'CH2OH', 'CH3OH', 'HCO', 'H2CO']
-                # sp_ini are the species actually selected by the user
-                sp_ini = [sp for sp in species if sp in nine_sp]               
-                ini_eq = self.abund_eq9(sp_ini, data_atm.Tco[i], data_atm.pco[i]/1.E6)
-                y_ini[i,:] = ini               
-                for sp in sp_ini + ['H2', 'He']:
-                    y_ini[i,species.index(sp)] = ini_eq[sp]*gas_tot[i]
-            
-            elif vulcan_cfg.ini_mix == 'CH4':
-                ini_mol = self.ini_mol()  
-                y_ini[i,:] = ini
-                y_ini[i,species.index('H2')] = ini_mol[0]*gas_tot[i]; y_ini[i,species.index('H2O')] = ini_mol[1]*gas_tot[i]; y_ini[i,species.index('CH4')] = ini_mol[2]*gas_tot[i]
-                # assign rest of the particles to He
-                y_ini[i,species.index('He')] = gas_tot[i] - np.sum(y_ini[i,:])
-            
-            else:
-                raise ValueError("Unknown assigned ini_mix in vulcan_cfg.py. (see vulcan_cfg_readme.txt for ini_mix)")
         
+        
+        if vulcan_cfg.ini_mix == 'fc':
+            
+            self.ini_fc(data_var, data_atm)
+            
+            fc = np.genfromtxt('fastchem_vulcan/output/vulcan_EQ.dat', names=True, dtype=None, skip_header=0)   
+            for sp in species:
+                y_ini[:,species.index(sp)] = fc[sp]*gas_tot
+        
+        else:
+            for i in range(nz):
+            
+                if vulcan_cfg.ini_mix == 'EQ_table':
+                
+                    for sp in species:
+                        y_ini[i,species.index(sp)] = float(self.fEQ(sp,data_atm.pco[i]/1e6,data_atm.Tco[i]))* gas_tot[i]
+        
+                elif vulcan_cfg.ini_mix == 'EQ_ana9':
+                    nine_sp = ['CH4', 'CO', 'CO2', 'H2O', 'C2H2', 'C2H4', 'NH3', 'N2', 'HCN', 'C2H4', 'C2H5', 'C2H6'\
+                , 'CH2OH', 'CH3OH', 'HCO', 'H2CO']
+                    # sp_ini are the species actually selected by the user
+                    sp_ini = [sp for sp in species if sp in nine_sp]               
+                    ini_eq = self.abund_eq9(sp_ini, data_atm.Tco[i], data_atm.pco[i]/1.E6)
+                    y_ini[i,:] = ini               
+                    for sp in sp_ini + ['H2', 'He']:
+                        y_ini[i,species.index(sp)] = ini_eq[sp]*gas_tot[i]
+           
+                elif vulcan_cfg.ini_mix == 'CH4 and N2':
+                    y_ini[i,:] = ini
+                    y_ini[i,species.index('H2')] = ini_mol[0]*gas_tot[i]; y_ini[i,species.index('H2O')] = ini_mol[1]*gas_tot[i]; y_ini[i,species.index('CH4')] = ini_mol[2]*gas_tot[i]
+                    y_ini[i,species.index('N2')] = ini_mol[4]*gas_tot[i]
+                    # assign rest of the particles to He
+                    y_ini[i,species.index('He')] = gas_tot[i] - np.sum(y_ini[i,:])
+    
+                elif vulcan_cfg.ini_mix == 'CO':
+                    y_ini[i,:] = ini
+                    y_ini[i,species.index('H2')] = ini_mol[0]*gas_tot[i]; y_ini[i,species.index('H2O')] = ini_mol[1]*gas_tot[i]; y_ini[i,species.index('CO')] = ini_mol[2]*gas_tot[i]
+                    # assign rest of the particles to He
+                    y_ini[i,species.index('He')] = gas_tot[i] - np.sum(y_ini[i,:])
+        
+                else:
+                    raise IOError ('\nInitial mixing ratios unknow. Check the setting in vulcan_cfg.py.')
         ysum = np.sum(y_ini, axis=1).reshape((-1,1))
         # storing ymix
         data_var.ymix = y_ini/ysum
         
+        data_var.y_ini = y_ini.copy()
         return data_var
         
+
+
     def ele_sum(self, data_var):
         
         for atom in self.atom_list:
@@ -336,6 +423,10 @@ class Atm(object):
         
         # updating and storing mu
         data_atm = self.mean_mass(data_var, data_atm, ni)
+        
+        # fixed mu
+        # if vulcan_cfg.use_const_mu == True: data_atm.mu = vulcan_cfg.const_mu
+        
         # updating and storing Hp
         data_atm.Hp = kb*Tco/(data_atm.mu/Navo*g) 
 

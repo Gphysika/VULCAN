@@ -4,7 +4,7 @@ corr = kb/1.e6  #P0=1.e6
 #C2H NASA 9 new from Brucat
 nasa9 = {}
 nasa9['He','low'], nasa9['He','high'] = [0]*10, [0]*10 
-for i in [ _ for _ in spec_list + ['N2', 'NH3', 'HCN'] if _ != 'He']:
+for i in [ _ for _ in spec_list if _ != 'He']:
     nasa9[i] = np.loadtxt('thermo/NASA9/' + str(i) + '.txt')
     nasa9[i] = nasa9[i].flatten()
     nasa9[i,'low'] = nasa9[i][0:10]

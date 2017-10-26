@@ -1,3 +1,7 @@
+# link to the original copy:
+# https://www.grc.nasa.gov/WWW/CEAWeb/TP-2002-211556.pdf
+
+
 !                                                                               
 !              SIX-CHARACTER REFERENCE-DATE CODES                               
 !                                                                               
