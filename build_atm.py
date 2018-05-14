@@ -3,15 +3,24 @@ from numpy import polynomial
 import scipy
 from scipy import interpolate
 import scipy.optimize as sop
+import subprocess
+import pickle
+
 import vulcan_cfg
-from phy_const import kb, Navo
+from phy_const import kb, Navo, r_sun, au
 from vulcan_cfg import nz
 import chem_funs
 from chem_funs import ni, nr  # number of species and reactions in the network
 species = chem_funs.spec_list
 
 ###
-compo = np.genfromtxt(vulcan_cfg.com_file,names=True,dtype=None)
+with open(vulcan_cfg.com_file, 'r') as f:
+    columns = f.readline() # reading in the first line
+    num_ele = len(columns.split())-2 # number of elements (-2 for removing "species" and "mass") 
+type_list = ['int' for i in range(num_ele)]
+type_list.insert(0,'U20'); type_list.append('float')
+compo = np.genfromtxt(vulcan_cfg.com_file,names=True,dtype=type_list)
+# dtype=None in python 2.X but Sx -> Ux in python3
 compo_row = list(compo['species'])
 ###
 
@@ -22,170 +31,150 @@ class InitialAbun(object):
     """
     
     def __init__(self):
-        self.ini_m = [0.7,0.1,0.1,0.1] # initial guess
-        self.EQ_ini_file = vulcan_cfg.EQ_ini_file
+        self.ini_m = [0.9,0.1,0.,0.,0] # initial guess
+        #self.EQ_ini_file = vulcan_cfg.EQ_ini_file
         
         self.atom_list = vulcan_cfg.atom_list
 
-    def abun_ch4(self, x):
+    def abun_lowT(self, x):
         """
-        calculating the initial mixing ratios of the following 4 molecules (with CH4) 
+        calculating the initial mixing ratios of the following 5 molecules (with CH4) 
         satisfying the assigned elemental abundance
-        x1:H2 x2:H2O x3:CH4 x4:He
+        x1:H2 x2:H2O x3:CH4 x4:He x5:NH3
         """
-        O_H, C_H, He_H = vulcan_cfg.O_H, vulcan_cfg.C_H, vulcan_cfg.He_H
-        x1,x2,x3,x4 = x
+        O_H, C_H, He_H, N_H = vulcan_cfg.O_H, vulcan_cfg.C_H, vulcan_cfg.He_H, vulcan_cfg.N_H
+        x1,x2,x3,x4,x5 = x
         f1 = x1+x2+x3+x4-1.
-        f2 = x2 - (2*x1+2*x2+4*x3)*O_H
-        f3 = x3 - (2*x1+2*x2+4*x3)*C_H
-        f4 = x4 - (2*x1+2*x2+4*x3)*He_H
-        return f1,f2,f3,f4
+        f2 = x2 - (2*x1+2*x2+4*x3+3*x5)*O_H
+        f3 = x3 - (2*x1+2*x2+4*x3+3*x5)*C_H
+        f4 = x4 - (2*x1+2*x2+4*x3+3*x5)*He_H
+        f5 = x5 - (2*x1+2*x2+4*x3+3*x5)*N_H
+        return f1,f2,f3,f4,f5
+        
+    def abun_highT(self, x):
+        """
+        calculating the initial mixing ratios of the following 4 molecules (with CO)
+        satisfying the assigned elemental abundance
+        x1:H2 x2:H2O x3:CO x4:He x5:N2
+        """
+        O_H, C_H, He_H, N_H = vulcan_cfg.O_H, vulcan_cfg.C_H, vulcan_cfg.He_H, vulcan_cfg.N_H
+        x1,x2,x3,x4,x5 = x
+        f1 = x1+x2+x3+x4-1.
+        f2 = x2+x3 - (2*x1+2*x2)*O_H
+        f3 = x3 - (2*x1+2*x2)*C_H
+        f4 = x4 - (2*x1+2*x2)*He_H
+        f5 = x5*2 - (2*x1+2*x2)*N_H
+        return f1,f2,f3,f4,f5
     
-    def abund_eq9(self, sp_ini, tp, pp):
-        '''
-        Using the 6-molecule function to solve 5th order polynomial equation for CO mixing ratio (Heng & Tsai 2016).
-        Besides the 6 molecules, several additional molecules are non self-consistently "post-processed."
-        '''
-        
-        from chem_funs import gibbs_sp
-        
-        n_eq, mix_eq = {}, {}
-        n_o, n_c, n_n = vulcan_cfg.O_H, vulcan_cfg.C_H, 0.
-               
-        kk1 = lambda T, pbar: np.exp( -( gibbs_sp('CO',T) + 3*gibbs_sp('H2',T) -1*gibbs_sp('CH4',T)-1*gibbs_sp('H2O',T) ) ) * (pbar)**-2
-        kk2 = lambda T: np.exp( -( gibbs_sp('CO',T) + gibbs_sp('H2O',T) -1*gibbs_sp('CO2',T) -1*gibbs_sp('H2',T) ) )
-        kk3 = lambda T, pbar: np.exp( -( gibbs_sp('C2H2',T) + 3*gibbs_sp('H2',T) -2*gibbs_sp('CH4',T) ) ) * (pbar)**-2
-        kk4 = lambda T, pbar: np.exp( -( gibbs_sp('C2H2',T) + gibbs_sp('H2',T) -gibbs_sp('C2H4',T) ) ) * (pbar)**-1
-        kk5 = lambda T, pbar: np.exp( -( gibbs_sp('N2',T) + 3*gibbs_sp('H2',T) -2*gibbs_sp('NH3',T) ) ) * (pbar)**-2
-        kk6 = lambda T, pbar: np.exp( -( gibbs_sp('HCN',T) + 3*gibbs_sp('H2',T) -gibbs_sp('NH3',T) -gibbs_sp('CH4',T) ) ) * (pbar)**-2
-     
-        k1 = kk1(tp,pp)
-        k5 = kk5(tp,pp)
-        k6 = kk6(tp,pp)
-        d2 = 1.0 + 2.0*k1*(n_o+n_c)
-        a0 = 256.0*(k1**3)*k5*(n_o**3)*n_c*n_c
-        a1 = 32.0*((k1*n_o)**2)*n_c*( k6 - 4.0*k5*( d2 + k1*n_c ) )
-        a2 = 16.0*k1*k5*n_o*( 8.0*k1*k1*n_o*n_c + d2*d2 + 4.0*k1*d2*n_c ) + 8.0*k1*k6*n_o*( 2.0*k6*(n_c-n_n) - 2.0*k1*n_c - d2 )
-        a3 = -8.0*k1*k5*( 4.0*k1*d2*n_o + 8.0*k1*k1*n_o*n_c + d2*d2 ) + 4.0*k1*k6*( 2.0*k1*n_o + d2 ) + 4.0*k6*k6*( 2.0*k1*n_n - d2 )
-        a4 = 16.0*k1*k1*k5*( k1*n_o + d2 ) + 4.0*k1*k6*(k6-k1)
-        a5 = -8.0*(k1**3)*k5
-        result = polynomial.polynomial.polyroots([a0,a1,a2,a3,a4,a5])
-        result = result[result.real > 0.0]
-        result = result[result.real < 2.0*n_o]
-
-        try: # multiple positive realroots 
-            result = result[0]#.real
-        except: # for only single positive real root
-            pass
-        n_eq['CO'] = result.real
-        
-        # for no root found, meaning the mixing ratio of CO is extreamly low
-        if not n_eq['CO']: 
-            n_eq['CO']= 0.
-            print ('No equilibrium solution found for CO! Setting to zero.')
-              
-        k2 = kk2(tp)
-        k3 = kk3(tp,pp)
-        k4 = kk4(tp,pp)
-        
-        # H2O
-        c2 = 1.0/kk2(tp)
-        n_eq['H2O'] = (2.0*n_o - n_eq['CO'])/(1.0 + 2.0*c2*n_eq['CO'])
-        
-        # CH4
-        n_eq['CH4'] = n_eq['CO']/k1/n_eq['H2O']
-        
-        # CO2       
-        n_eq['CO2'] = n_eq['CO']*n_eq['H2O']/k2
-
-        # C2H2
-        n_eq['C2H2'] = k3*n_eq['CH4']**2
-        
-        # C2H4
-        n_eq['C2H4'] = n_eq['C2H2']/k4
-        
-        # non self-consistent "post-processing" for other species
-        
-        # kk7: C2H2 + 0.5 * H2 -> C2H3
-        kk7 = lambda T, pbar: np.exp( -( gibbs_sp('C2H3',T) -gibbs_sp('C2H2',T) -0.5*gibbs_sp('H2',T) ) ) * (pbar)**0.5
-        # kk8: C2H2 + 1.5 * H2 -> C2H5
-        kk8 = lambda T, pbar: np.exp( -( gibbs_sp('C2H5',T) -gibbs_sp('C2H2',T) -1.5*gibbs_sp('H2',T) ) ) * (pbar)**1.5
-        # kk9: C2H2 + 2 * H2 -> C2H6
-        kk9 = lambda T, pbar: np.exp( -( gibbs_sp('C2H6',T) -gibbs_sp('C2H2',T) -2*gibbs_sp('H2',T) ) ) * (pbar)**2
-        # kk10: CO + 1.5 * H2 -> CH2OH
-        kk10 = lambda T, pbar: np.exp( -( gibbs_sp('CH2OH',T) -gibbs_sp('CO',T) -1.5*gibbs_sp('H2',T) ) ) * (pbar)**1.5
-        # kk11: CO + 2 * H2 -> CH3OH
-        kk11 = lambda T, pbar: np.exp( -( gibbs_sp('CH3OH',T) -gibbs_sp('CO',T) -2*gibbs_sp('H2',T) ) ) * (pbar)**2
-        # kk12: CO + 0.5 * H2 -> HCO
-        kk12 = lambda T, pbar: np.exp( -( gibbs_sp('HCO',T) -gibbs_sp('CO',T) -0.5*gibbs_sp('H2',T) ) ) * (pbar)**0.5
-        # kk13: CO + H2 -> H2CO
-        kk13 = lambda T, pbar: np.exp( -( gibbs_sp('H2CO',T) -gibbs_sp('CO',T) -gibbs_sp('H2',T) ) ) * (pbar)**1
-        
-        k7, k8, k9, k10, k11, k12, k13 = kk7(tp,pp), kk8(tp,pp), kk9(tp,pp), kk10(tp,pp), kk11(tp,pp), kk12(tp,pp), kk13(tp,pp)
-        
-        n_eq['C2H3'] = n_eq['C2H2']*k7
-        n_eq['C2H5'] = n_eq['C2H2']*k8
-        n_eq['C2H6'] = n_eq['C2H2']*k9
-        n_eq['CH2OH'] = n_eq['CO']*k10
-        n_eq['CH3OH'] = n_eq['CO']*k11
-        n_eq['HCO'] = n_eq['CO']*k12
-        n_eq['H2CO'] = n_eq['CO']*k13
-              
-        norm = sum([n_eq[sp] for sp in sp_ini]) + 1. + vulcan_cfg.He_H*2. # 1. is from H2
-        for sp in sp_ini: # normalizing so that the total mixing ratio equals 1
-            mix_eq[sp] = n_eq[sp]/norm 
-        mix_eq['H2'] = 1./norm
-        mix_eq['He'] = 2.*vulcan_cfg.He_H/norm
-    
-        return mix_eq
     
     def ini_mol(self):
-        if vulcan_cfg.ini_mix == 'CH4':
-            return np.array(sop.fsolve(self.abun_ch4, self.ini_m))
-        else: 
-            raise ValueError("Unknown assigned ini_mix in vulcan_cfg.py. (see vulcan_cfg_readme.txt for ini_mix)")
-       
-    def ini_y(self, data_var, data_atm): 
-        # initializing the starting mixing ratios from the assigned elemental abundance
+        if vulcan_cfg.ini_mix == 'const_lowT':
+            return np.array(sop.fsolve(self.abun_lowT, self.ini_m))
+        # somehow const_highT is not stable at high P...
+        # elif vulcan_cfg.ini_mix == 'const_highT':
+            # return np.array(sop.fsolve(self.abun_highT, self.ini_m))
+            
+    def ini_fc(self, data_var, data_atm):
+        # reading-in the default elemental abundances from Lodders 2009
+        with open('fastchem_vulcan/chemistry/elements/element_abundances_lodders.dat' ,'r') as f:
+            new_str = ""
+            ele_list = list(vulcan_cfg.atom_list)
+            ele_list.remove('H')
+            
+            if vulcan_cfg.use_solar == True: 
+                new_str = f.read() # read in as a string
+                print ("Initializing with the default solar abundance.")
+                
+            else: # using costomized elemental abundances
+                print ("Initializing with the customized elemental abundance:")
+                print ("{:4}".format('H') + str('1.'))
+                for line in f.readlines():   
+                        li = line.split()
+                        if li[0] in ele_list:
+                            sp = li[0].strip()
+                            # read-in vulcan_cfg.sp_H
+                            sp_abun = getattr(vulcan_cfg, sp+'_H')
+                            fc_abun = 12. + np.log10(sp_abun)
+                            line = sp + '\t' + "{0:.4f}".format(fc_abun) + '\n'
+                            print ("{:4}".format(sp) + "{0:.4E}".format(sp_abun))
+                        new_str += line
+            
+            # make the new elemental abundance file
+            with open('fastchem_vulcan/chemistry/elements/element_abundances_vulcan.dat', 'w') as f: f.write(new_str)
+            
+        # write a T-P text file for fast_chem
+        with open('fastchem_vulcan/input/vulcan_TP/vulcan_TP.dat' ,'w') as f:
+            ost = ''   
+            for n, p in enumerate(data_atm.pco): # p in bar in fast_chem
+                ost +=  '{:.3e}'.format(p/1.e6) + '\t' + '{:.1f}'.format(data_atm.Tco[n])  + '\n'
+            ost = ost[:-1]
+            f.write(ost)
+        
+        subprocess.call(["./fastchem input/config.input"], shell=True, cwd='fastchem_vulcan/')
            
+    def ini_y(self, data_var, data_atm): 
+        # initial mixing ratios of the molecules
+        
+        ini_mol = self.ini_mol()  
         ini = np.zeros(ni)
         y_ini = data_var.y
         gas_tot = data_atm.M
-    
-        for i in range(nz):
+      
+        if vulcan_cfg.ini_mix == 'fc':
+        
+            self.ini_fc(data_var, data_atm)
+            fc = np.genfromtxt('fastchem_vulcan/output/vulcan_EQ.dat', names=True, dtype=None, skip_header=0) 
+            neutral_sp = [sp for sp in species if sp not in vulcan_cfg.excit_sp]
+
+            for sp in neutral_sp:
+                y_ini[:,species.index(sp)] = fc[sp]*gas_tot
+        
+        elif vulcan_cfg.ini_mix == 'fc_precal':
             
-            if vulcan_cfg.ini_mix == 'EQ':
-                nine_sp = ['CH4', 'CO', 'CO2', 'H2O', 'C2H2', 'C2H4', 'NH3', 'N2', 'HCN', 'C2H4', 'C2H5', 'C2H6'\
-            , 'CH2OH', 'CH3OH', 'HCO', 'H2CO']
-                # sp_ini are the species actually selected by the user
-                sp_ini = [sp for sp in species if sp in nine_sp]               
-                ini_eq = self.abund_eq9(sp_ini, data_atm.Tco[i], data_atm.pco[i]/1.E6)
-                y_ini[i,:] = ini               
-                for sp in sp_ini + ['H2', 'He']:
-                    y_ini[i,species.index(sp)] = ini_eq[sp]*gas_tot[i]
+            pre_fc = 'fastchem_vulcan/output/vulcan_EQ_pre.dat'
+            print ('\n Using the precalculated fastchem output: '+ pre_fc)
             
-            elif vulcan_cfg.ini_mix == 'CH4':
-                ini_mol = self.ini_mol()  
-                y_ini[i,:] = ini
-                y_ini[i,species.index('H2')] = ini_mol[0]*gas_tot[i]; y_ini[i,species.index('H2O')] = ini_mol[1]*gas_tot[i]; y_ini[i,species.index('CH4')] = ini_mol[2]*gas_tot[i]
-                # assign rest of the particles to He
-                y_ini[i,species.index('He')] = gas_tot[i] - np.sum(y_ini[i,:])
+            fc = np.genfromtxt(pre_fc, names=True, dtype=None, skip_header=0)   
+            for sp in species:
+                y_ini[:,species.index(sp)] = fc[sp]*gas_tot
+        
+        elif vulcan_cfg.ini_mix == 'vulcan_ini':
+            with open(vulcan_cfg.vul_ini, 'rb') as handle:
+              vul_data = pickle.load(handle) 
             
-            else:
-                raise ValueError("Unknown assigned ini_mix in vulcan_cfg.py. (see vulcan_cfg_readme.txt for ini_mix)")
+            y_ini = np.copy(vul_data['variable']['y'])
+            data_var.y = np.copy(y_ini)
+
+        else:
+            
+            for i in range(nz):
+                
+                if vulcan_cfg.ini_mix == 'const_lowT':
+                    y_ini[i,:] = ini
+                    y_ini[i,species.index('H2')] = ini_mol[0]*gas_tot[i]; y_ini[i,species.index('H2O')] = ini_mol[1]*gas_tot[i]; y_ini[i,species.index('CH4')] = ini_mol[2]*gas_tot[i]
+                    y_ini[i,species.index('NH3')] = ini_mol[4]*gas_tot[i]
+                    # assign rest of the particles to He
+                    y_ini[i,species.index('He')] = gas_tot[i] - np.sum(y_ini[i,:])
+
+                else:
+                    raise IOError ('\nInitial mixing ratios unknow. Check the setting in vulcan_cfg.py.')
         
         ysum = np.sum(y_ini, axis=1).reshape((-1,1))
         # storing ymix
         data_var.ymix = y_ini/ysum
         
+        data_var.y_ini = np.copy(y_ini)
         return data_var
         
+
+
     def ele_sum(self, data_var):
         
         for atom in self.atom_list:
             data_var.atom_ini[atom] = np.sum([compo[compo_row.index(species[i])][atom] * data_var.y[:,i] for i in range(ni)])
             data_var.atom_loss[atom] = 0.
-
+            data_var.atom_conden[atom] = 0.
+            
         return data_var
 
 
@@ -198,8 +187,7 @@ class Atm(object):
         self.type = vulcan_cfg.atm_type
         self.use_Kzz = vulcan_cfg.use_Kzz
         self.Kzz_prof = vulcan_cfg.Kzz_prof
-        self.const_Kzz = vulcan_cfg.const_Kzz
-        
+        self.const_Kzz = vulcan_cfg.const_Kzz        
         
     def f_pico(self, data_atm):
         '''calculating the pressure at interface'''
@@ -218,8 +206,7 @@ class Atm(object):
              
         return data_atm
     
-        
-
+    
     def load_TPK(self, data_atm, output):
         
         PTK_fun = {}
@@ -291,6 +278,9 @@ class Atm(object):
         # plot T-P profile
         if vulcan_cfg.plot_TP == True: output.plot_TP(data_atm)
         
+        # print warning when T exceeds the valid range of Gibbs free energy (NASA polynomials)
+        if np.any(np.logical_or(data_atm.Tco < 200, data_atm.Tco > 6000)): print ('Temperatures exceed the valid range of Gibbs free energy.\n')
+        
         return data_atm
         
         
@@ -318,7 +308,7 @@ class Atm(object):
     
         
     def mol_mass(self, sp):
-        """ calculating the molar mass of each species?"""
+        ''' calculating the molar mass of each species?'''
         return compo['mass'][compo_row.index(sp)]
 
     def mean_mass(self, var, atm, ni):
@@ -343,6 +333,8 @@ class Atm(object):
             dz[i] = data_atm.Hp[i] * np.log(pico[i]/pico[i+1])
             zco[i+1] = zco[i] + dz[i]
 
+        zmco = 0.5*(zco + np.roll(zco,-1))
+        zmco = zmco[:-1]
         dzi = 0.5*(dz + np.roll(dz,1))
         dzi = dzi[1:]
         # for the j grid, dzi[j] from the grid above and dz[j-1] from the grid below
@@ -350,8 +342,81 @@ class Atm(object):
         # updating and storing dz and dzi
         data_atm.dz = dz
         data_atm.dzi = dzi
+        data_atm.zmco = zmco
         
         return data_atm
+        
+    def read_sflux(self, var, atm):
+        
+        atm.sflux_raw = np.genfromtxt(vulcan_cfg.sflux_file, dtype=float, skip_header=1, names = ['lambda','flux'])
+        
+        # for values outside the boundary => fill_value = 0
+        inter_sflux = interpolate.interp1d(atm.sflux_raw['lambda'], atm.sflux_raw['flux'], bounds_error=False, fill_value=0)
+        for n, ld in enumerate(var.bins):
+            var.sflux_top[n] = inter_sflux(ld) * (vulcan_cfg.r_star*r_sun/(au*vulcan_cfg.orbit_radius) )**2 # 1/Pi for a half-hemisphere
+            # not converting to actinic flux yet *1/(hc/ld)  
+            
+            # for TOA 1AU Earth
+            #var.sflux_top[n] = inter_sflux(ld) * (1./vulcan_cfg.orbit_radius)**2 /(hc/ld)
+    
+    def mol_diff(self, atm):
+        '''
+        choosing the formulea of molecular diffusion for each species
+        then constucting Dzz(z) 
+        '''
+        Tco = atm.Tco
+        n_0 = atm.n_0 
+        
+        # using the value defined on the interface
+        Tco_i = np.delete((Tco + np.roll(Tco,1))*0.5, 0)
+        n0_i = np.delete((n_0 + np.roll(n_0,1))*0.5, 0)
+        
+        if vulcan_cfg.atm_base == 'H2':
+            Dzz_gen = lambda T, n_tot, mi: 2.3E17*T**0.765/n_tot *( 16.04/mi*(mi+2.016)/18.059 )**0.5
+        else: raise IOError ('\n Unknow atm_base!')
+        
+        
+        for i in range(len(species)):
+            # input should be float or in the form of nz-long 1D array
+            atm.Dzz[:,i] = Dzz_gen(Tco_i, n0_i, self.mol_mass(species[i]))
+            
+            # constructing the molecular weight for every species
+            atm.ms[i] = compo[compo_row.index(species[i])][-1]
+        
+        # no exception needed!?    
+        # exceptions
+        # if vulcan_cfg.atm_base == 'H2':
+#             atm.Dzz[:,species.index('H2')] = np.zeros(nz-1)
+#         else: raise IOError ('\n Unknow atm_base!')
+        
+        
+        # thermal diffusion for H and H2
+        atm.alpha[species.index('H')] = -0.25
+        atm.alpha[species.index('H2')] = -0.25
+    
+    def BC_flux(self, atm):
+        '''
+        Reading-in the boundary conditions of constant flux (cm^-2 s^-1) at top/bottom
+        '''
+        # read in the const top BC
+        if vulcan_cfg.use_topflux == True: 
+            print ("Using the prescribed constant top flux.")
+            with open (vulcan_cfg.top_BC_mix_file) as f:
+                for line in f.readlines():
+                    if not line.startswith("#") and line.strip():
+                        li = line.split()                   
+                        atm.top_flux[species.index(li[0])] = li[1]
+        
+        # read in the const bottom BC
+        if vulcan_cfg.use_botflux == True: 
+            print ("Using the prescribed constant bottom flux.")
+            with open (vulcan_cfg.bot_BC_mix_file) as f:
+                for line in f.readlines():
+                    if not line.startswith("#") and line.strip():
+                        li = line.split()                   
+                        atm.bot_flux[species.index(li[0])] = li[1]
+         
+        
 
 if __name__ == "__main__":
     print("This module stores classes for constructing atmospheric structure \

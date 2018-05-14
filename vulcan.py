@@ -54,6 +54,7 @@ import matplotlib.legend as lg
 import scipy
 import scipy.optimize as sop
 import time, timeit, os, sys
+import ast
 
 # import VULCAN modules
 import store, build_atm, op
@@ -72,10 +73,8 @@ dname = os.path.dirname(abspath)
 os.chdir(dname)
 
 from chem_funs import ni, nr  # number of species and reactions in the network
-np.set_printoptions(threshold='nan')  # print all for debuging
+np.set_printoptions(threshold=np.inf)  # print all for debuging
 
-
-### sholud these be here?
 species = chem_funs.spec_list
 compo = np.genfromtxt(vulcan_cfg.com_file,names=True,dtype=None)
 compo_row = list(compo['species'])
@@ -87,6 +86,7 @@ data_para = store.Parameters()
 
 # record starting CPU time
 data_para.start_time = time.time()
+
 make_atm = build_atm.Atm()
 
 # for plotting and printing
@@ -96,6 +96,9 @@ output = op.Output()
 data_atm = make_atm.f_pico(data_atm)
 # construct Tco and Kzz 
 data_atm =  make_atm.load_TPK(data_atm, output)
+# construct Dzz (molecular diffusion)
+make_atm.mol_diff(data_atm)
+
 # for reading rates
 rate = op.ReadRate()
 
@@ -116,16 +119,37 @@ data_var = ini_abun.ele_sum(data_var)
 # calculating mean molecular weight, dz, and dzi
 data_atm = make_atm.f_mu_dz(data_var, data_atm)
 
+# specify the BC
+make_atm.BC_flux(data_atm)
+
 # ============== Execute VULCAN  ==============
 # time-steping in the while loop until conv() returns True or count > count_max 
 
 # setting the solver to the desinated one in vulcan_cfg
-solver = eval("op." + vulcan_cfg.ode_solver + "()") 
-quasi = op.QuasiSteady(solver, output)
+#solver = eval("op." + vulcan_cfg.ode_solver + "()")
+solver_str = vulcan_cfg.ode_solver
+solver = getattr(op, solver_str)()
+
+#quasi = op.QuasiSteady(solver, output)
+
+# Setting up for photo chemistry
+if vulcan_cfg.use_photo == True:
+    
+    rate.make_bins_read_cross(data_var)
+    #rate.read_cross(data_var)
+    make_atm.read_sflux(data_var, data_atm)
+
+    #solver.compute_tau(data_var, data_atm)
+    #solver.compute_flux(data_var, data_atm)
+    #solver.compute_J(data_var, data_atm)
+    
+    # test
+    # removing rates
+    data_var = rate.remove_rate(data_var)
 
 # Running the integration loop
 integ = op.Integration(solver, output) 
 integ(data_var, data_atm, data_para, make_atm)
-quasi(data_var, data_atm, data_para, make_atm)
+#quasi(data_var, data_atm, data_para, make_atm)
 
 output.save_out(data_var, data_atm, data_para, dname)

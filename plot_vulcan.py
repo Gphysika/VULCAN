@@ -27,7 +27,8 @@ colors = ['c','b','g','r','m','y','k','orange','pink','grey','darkred','darkblue
 
 tex_labels = {'H':'H','H2':'H$_2$','O':'O','OH':'OH','H2O':'H$_2$O','CH':'CH','C':'C','CH2':'CH$_2$','CH3':'CH$_3$','CH4':'CH$_4$','HCO':'HCO','H2CO':'H$_2$CO', 'C4H2':'C$_4$H$_2$',\
 'C2':'C$_2$','C2H2':'C$_2$H$_2$','C2H3':'C$_2$H$_3$','C2H':'C$_2$H','CO':'CO','CO2':'CO$_2$','He':'He','O2':'O$_2$','CH3OH':'CH$_3$OH','C2H4':'C$_2$H$_4$','C2H5':'C$_2$H$_5$','C2H6':'C$_2$H$_6$','CH3O': 'CH$_3$O'\
-,'CH2OH':'CH$_2$OH'}
+,'CH2OH':'CH$_2$OH','N2':'N$_2$','NH3':'NH$_3$', 'NO2':'NO$_2$','HCN':'HCN','NO':'NO', 'NO2':'NO$_2$' }
+
 
 
 with open(vul_data, 'rb') as handle:
@@ -38,17 +39,24 @@ vulcan_spec = data['variable']['species']
 for sp in plot_spec:
     if color_index == len(colors): # when running out of colors
         colors.append(tuple(np.random.rand(3)))
-    plt.plot(data['variable']['ymix'][:,vulcan_spec.index(sp)], data['atm']['pco']/1.e6, color=colors[color_index], label=tex_labels[sp])
+    
+    if sp in tex_labels: sp_lab = tex_labels[sp]
+    else: sp_lab = sp  
+    
+    plt.plot(data['variable']['ymix'][:,vulcan_spec.index(sp)], data['atm']['pco']/1.e6, color=colors[color_index], label=sp_lab, lw=1.5)
+    plt.plot(data['variable']['y_ini'][:,vulcan_spec.index(sp)]/data['atm']['n_0'], data['atm']['pco']/1.e6, color=colors[color_index], ls=':', lw=2)
+    
     color_index +=1
       
 plt.gca().set_xscale('log')       
 plt.gca().set_yscale('log') 
 plt.gca().invert_yaxis() 
-plt.xlim((1.E-20, 1.))
-plt.ylim((1.E3,1.E-4))
-plt.legend(frameon=0, prop={'size':12}, loc='best')
+plt.xlim((1.E-16, 1.))
+plt.ylim((1.E3,data['atm']['pco'][-1]/1e6))
+plt.legend(frameon=0, prop={'size':14}, loc='best')
 plt.xlabel("Mixing Ratio")
 plt.ylabel("Pressure (bar)")
+plt.title('HD189 Sun Manuel Test')
 plt.savefig(plot_dir + plot_name + '.png')
 plt.savefig(plot_dir + plot_name + '.eps')
 if vulcan_cfg.use_PIL == True:

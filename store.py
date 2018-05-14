@@ -1,13 +1,8 @@
 import numpy as np
 import scipy
-#from vulcan_cfg import *
 import vulcan_cfg
-#from phy_const import *
-#import HOC, HOC_jac
 from vulcan_cfg import nz
-from vulcan_cfg import na # the number of atoms
 from chem_funs import ni, nr  # number of species and reactions in the network
-
 
 class Variables(object):
     """
@@ -20,6 +15,9 @@ class Variables(object):
         self.y_prev = np.zeros((nz, ni))
         self.ymix = np.zeros((nz, ni))
         self.ysum = 0
+        self.y_ini = np.zeros((nz, ni))
+        self.y_conden = np.zeros((nz, ni))  # to store the species removed by condensation
+        
         #self.yconv = 1.
         #self.yconv_prev = 1.
         
@@ -48,19 +46,63 @@ class Variables(object):
         self.atom_sum = {}
         self.atom_loss = {}
         self.atom_loss_prev = {}
-        self.mean_mass = np.zeros(nz) 
-        
+        #  self.mean_mass = np.zeros(nz) 
+        self.atom_conden = {}
         
         self.Rf = {}  # reaction equation
         self.Rindx = {}
         self.a, self.n, self.E, self.a_inf, self.n_inf, self.E_inf,= [{} for i in range(6)]
-        self.k, self.k_fun, self.k_inf = [{} for i in range(3)]   
+        self.k, self.k_fun, self.k_inf = [{} for i in range(3)] 
+        self.photo_sp = set()  
+        self.pho_rate_index, self.n_branch, self.wavelen, self.br_ratio = {}, {}, {}, {}
         
-        
-        ### ???
         self.kinf_fun = {}
         self.k_fun_new = {}
-    
+        
+        # the max change of the actinic flux (for convergence)
+        # if photochemistry is off, the value remaines 0 for checking convergence
+        self.aflux_change = 0.
+        
+        self.def_bin_min = 2. #20.
+        self.def_bin_max = 800.1
+        
+        
+        ### ### ### ### ### ### ### ### ### ### ###
+        # List the names variables defined in op here!
+        ### ### ### ### ### ### ### ### ### ### ###
+        
+        # User define what to save!
+        self.var_save = ['k','y','ymix','ysum','y_ini','y_conden','t','dt','longdy','longdydt',\
+        'atom_ini','atom_sum','atom_loss','atom_conden','aflux_change'] 
+        if vulcan_cfg.use_photo == True: self.var_save.extend(['nbin','bins','dbin','tau','sflux','aflux','cross','cross_scat','J_sp','wavelen','n_branch','br_ratio'])
+        #self.var_evol_save = ['ymix_time','t_time','atom_loss_time']
+        self.var_evol_save = []
+        
+        
+        
+        
+        # photo data initiated in read_cross in op.py
+        # self.cross = {}
+        # self.cross_scat = {}
+        
+        # self.dbin = vulcan_cfg.dbin #0.2 # d-lambda
+#         self.bins = np.arange(20.,400.1, self.dbin)
+#         self.bins[-1] -= 1.E-10   # for solaving the floating pb in binary when doing read_cross
+#         self.nbin = len(self.bins)
+
+        # # the direct beam (staggered)
+#         self.sflux = np.empty( (nz+1, self.nbin) )
+#         # the diffusive flux (staggered)
+#         self.dflux_u, self.dflux_d = np.zeros( (nz+1, self.nbin) ), np.zeros( (nz+1, self.nbin) )
+#         # the total actinic flux (non-staggered)
+#         self.aflux = np.empty( (nz, self.nbin) )
+#         # staggered
+#         self.tau = np.zeros( (nz+1, self.nbin) )
+#
+#         self.sflux_top = np.empty(self.nbin)
+        # the total actinic flux (center, non-staggered) from the previous calculation 
+        # self.prev_aflux = np.empty( (nz, self.nbin) )
+        
 
 class AtmData(object):
     """
@@ -72,15 +114,26 @@ class AtmData(object):
         self.dz = np.empty(nz)
         self.dzi = np.empty(nz-1)
         self.zco = np.empty(nz+1) # not used in calculation
+        self.zmco = np.empty(nz)
         self.Tco = np.empty(nz)
         self.Kzz = np.empty(nz-1)
         self.M = np.empty(nz)
         self.n_0 = np.empty(nz)
         self.Hp = np.empty(nz)
         self.mu = np.empty(nz)
-
-                
-
+        self.ms = np.empty(ni) # molecular weight for every species
+        self.Dzz = np.empty((nz-1,ni))
+        self.alpha = -0.25*np.ones(ni) # thermal diffusion factor = -0.25 for every species except for H and H2 (defined in mol_diff() in build_atm.py)
+        
+        self.top_flux = np.zeros(ni)
+        self.bot_flux = np.zeros(ni)
+        
+        self.sat_p = {}
+        
+        # # put in build atm ?
+        # if vulcan_cfg.atm_base == 'H2'
+        #     self.Dzz = dict([( (sp, ) , np.zeros(nz)) for sp in var.photo_sp for bn in range(n_branch[sp]+1) ])
+        #
 
 class Parameters(object):
     """
