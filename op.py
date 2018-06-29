@@ -370,7 +370,8 @@ class ReadRate(object):
         cross_raw, scat_raw = {}, {}
         # reading in cross sections into dictionary
         for n, sp in enumerate(photo_sp):
-            cross_raw[sp] = np.genfromtxt(vulcan_cfg.cross_folder+sp+'_cross.csv',dtype=float,delimiter=',',skip_header=1, names = ['lambda','cross','disso'])
+            try: cross_raw[sp] = np.genfromtxt(vulcan_cfg.cross_folder+sp+'_cross.csv',dtype=float,delimiter=',',skip_header=1, names = ['lambda','cross','disso'])
+            except: print ('\nMissing the cross section from ' + sp)
             
             if cross_raw[sp]['cross'][0] == 0 or cross_raw[sp]['cross'][-1] ==0:
                 raise IOError ('\n Please remove the zeros in the cross file of ' + sp)
@@ -510,7 +511,7 @@ class Integration(object):
             # TEST
             if var.longdy < 0.5 and var.longdydt < 1.e-6:  
                 self.update_photo_frq = vulcan_cfg.final_update_photo_frq
-                print ('update_photo_frq changed to 1')
+                print ('update_photo_frq changed to ' + str(vulcan_cfg.final_update_photo_frq))
             
             if vulcan_cfg.use_photo == True and para.count % self.update_photo_frq == 0:
                 self.odesolver.compute_tau(var, atm)
@@ -729,37 +730,41 @@ class ODESolver(object):
         Dzz = atm.Dzz.copy()
         alpha = atm.alpha.copy()
         Tco = atm.Tco.copy()
-        mu, ms = atm.mu.copy(),  atm.ms.copy()
+        ms = atm.ms.copy()
         Hp = atm.Hp.copy()
         g = vulcan_cfg.g
         
         # define T_1/2 for the molecular diffusion
         Ti = 0.5*(Tco + np.roll(Tco,-1))
         Ti = Ti[:-1] 
-           
+        Hpi = 0.5*(Hp + np.roll(Hp,-1))
+        Hpi = Hpi[:-1]
+        # store Ti and Hpi
+        atm.Ti = Ti
+        atm.Hpi = Hpi
+        
         A, B, C = np.zeros(nz), np.zeros(nz), np.zeros(nz)
         Ai, Bi, Ci = [ np.zeros((nz,ni)) for i in range(3)]
         
         A[0] = -1./(dzi[0])*(Kzz[0]/dzi[0]) *(ysum[1]+ysum[0])/2. /ysum[0]     
         B[0] = 1./(dzi[0])*(Kzz[0]/dzi[0]) *(ysum[1]+ysum[0])/2. /ysum[1] 
-        C[0] = 0
-
+        C[0] = 0 
         A[nz-1] = -1./(dzi[nz-2])*(Kzz[nz-2]/dzi[nz-2]) *(ysum[nz-1]+ysum[nz-2])/2. /ysum[nz-1] 
         B[nz-1] = 0 
-        C[nz-1] = 1./(dzi[nz-2])*(Kzz[nz-2]/dzi[nz-2]) *(ysum[nz-1]+ysum[nz-2])/2. /ysum[nz-2]  
+        C[nz-1] = 1./(dzi[nz-2])*(Kzz[nz-2]/dzi[nz-2]) *(ysum[nz-1]+ysum[nz-2])/2. /ysum[nz-2] 
         
         # shape of ni-long 1D array
         Ai[0] = -1./(dzi[0])*(Dzz[0]/dzi[0]) *(ysum[1]+ysum[0])/2. /ysum[0] +\
-        1./(dzi[0])* Dzz[0]/2.*(-1./Hp[1]+ms*g/(Navo*kb*Tco[1])+alpha/Ti[0]*(Tco[1]-Tco[0])/dzi[0] )
+        1./(dzi[0])* Dzz[0]/2.*(-1./Hpi[0]+ms*g/(Navo*kb*Ti[0])+alpha/Ti[0]*(Tco[1]-Tco[0])/dzi[0] )  
         Bi[0] = 1./(dzi[0])*(Dzz[0]/dzi[0]) *(ysum[1]+ysum[0])/2. /ysum[1] +\
-        1./(dzi[0])* Dzz[0]/2.*(-1./Hp[1]+ms*g/(Navo*kb*Tco[1])+alpha/Ti[0]*(Tco[1]-Tco[0])/dzi[0] )
+        1./(dzi[0])* Dzz[0]/2.*(-1./Hpi[0]+ms*g/(Navo*kb*Ti[0])+alpha/Ti[0]*(Tco[1]-Tco[0])/dzi[0] )
         Ci[0] = 0 
-        Ai[nz-1] = -1./(dzi[nz-2])*(Dzz[nz-2]/dzi[nz-2]) *(ysum[nz-1]+ysum[nz-2])/2. /ysum[nz-1] -\
-        1./(dzi[-1])* Dzz[nz-2]/2.*(-1./Hp[nz-1]+ms*g/(Navo*kb*Tco[nz-1])+alpha/Ti[-1]*(Tco[-1]-Tco[-2])/dzi[-1] )
+        Ai[nz-1] = -1./(dzi[-1])*(Dzz[nz-2]/dzi[-1]) *(ysum[nz-1]+ysum[nz-2])/2. /ysum[nz-1] \
+        -1./(dzi[-1])* Dzz[-1]/2.*(-1./Hpi[-1]+ms*g/(Navo*kb*Ti[-1])+alpha/Ti[-1]*(Tco[-1]-Tco[-2])/dzi[-1] )
         Bi[nz-1] = 0
-        Ci[nz-1] = 1./(dzi[nz-2])*(Dzz[nz-2]/dzi[nz-2]) *(ysum[nz-1]+ysum[nz-2])/2. /ysum[nz-2] -\
-        1./(dzi[-1])* Dzz[nz-2]/2.*(-1./Hp[nz-1]+ms*g/(Navo*kb*Tco[nz-1])+alpha/Ti[-1]*(Tco[-1]-Tco[-2])/dzi[-1] )
-
+        Ci[nz-1] = 1./(dzi[-1])*(Dzz[nz-2]/dzi[-1]) *(ysum[nz-1]+ysum[nz-2])/2. /ysum[nz-2] \
+        -1./(dzi[-1])* Dzz[-1]/2.*(-1./Hpi[-1]+ms*g/(Navo*kb*Ti[-1])+alpha/Ti[-1]*(Tco[-1]-Tco[-2])/dzi[-1] )
+        
         for j in range(1,nz-1):
             dz_ave = 0.5*(dzi[j-1] + dzi[j])
             A[j] = -1./dz_ave * ( Kzz[j]/dzi[j]*(ysum[j+1]+ysum[j])/2. + Kzz[j-1]/dzi[j-1]*(ysum[j]+ysum[j-1])/2. ) /ysum[j]  
@@ -771,25 +776,25 @@ class ODESolver(object):
             Bi[j] = 1./dz_ave * Dzz[j]/dzi[j] *(ysum[j+1]+ysum[j])/2. /ysum[j+1]
             Ci[j] = 1./dz_ave * Dzz[j-1]/dzi[j-1] *(ysum[j]+ysum[j-1])/2. /ysum[j-1]
             
-            # using Hp[j+1] to approximate Hp_j+1/2
-            Ai[j] += 1./(2.*dz_ave)*( Dzz[j]*(-1./Hp[j+1]+ms*g/(Navo*kb*Tco[j+1])+alpha/Ti[j]*(Tco[j+1]-Tco[j])/dzi[j] ) \
-            - Dzz[j-1]*(-1./Hp[j-1]+ms*g/(Navo*kb*Tco[j-1])+alpha/Ti[j-1]*(Tco[j]-Tco[j-1])/dzi[j-1] ) )
-            Bi[j] += 1./(2.*dz_ave)* Dzz[j]*(-1./Hp[j+1]+ms*g/(Navo*kb*Tco[j+1])+alpha/Ti[j]*(Tco[j+1]-Tco[j])/dzi[j] ) 
-            Ci[j] += -1./(2.*dz_ave)* Dzz[j-1]*(-1./Hp[j-1]+ms*g/(Navo*kb*Tco[j-1])+alpha/Ti[j-1]*(Tco[j]-Tco[j-1])/dzi[j-1] )
-
+            Ai[j] += 1./(2.*dz_ave)*( Dzz[j]*(-1./Hpi[j]+ms*g/(Navo*kb*Ti[j])+alpha/Ti[j]*(Tco[j+1]-Tco[j])/dzi[j] ) \
+            - Dzz[j-1]*(-1./Hpi[j-1]+ms*g/(Navo*kb*Ti[j-1])+ alpha/Ti[j-1]*(Tco[j]-Tco[j-1])/dzi[j-1] ) ) #/ysum[j]
+            Bi[j] += 1./(2.*dz_ave)* Dzz[j]*(-1./Hpi[j]+ms*g/(Navo*kb*Ti[j])+alpha/Ti[j]*(Tco[j+1]-Tco[j])/dzi[j] )
+            Ci[j] += -1./(2.*dz_ave)* Dzz[j-1]*(-1./Hpi[j-1]+ms*g/(Navo*kb*Ti[j-1])+alpha/Ti[j-1]*(Tco[j]-Tco[j-1])/dzi[j-1] )
+ 
         tmp0 = (A[0] + Ai[0])*y[0] + (B[0] + Bi[0])*y[1] # shape of ni-long 1D array  
         tmp1 = np.ndarray.flatten( (np.vstack(A[1:nz-1])*y[1:(nz-1)] + np.vstack(B[1:nz-1])*y[1+1:(nz-1)+1] + np.vstack(C[1:nz-1])*y[1-1:(nz-1)-1]) ) 
         tmp1 += np.ndarray.flatten( Ai[1:nz-1]*y[1:(nz-1)] + Bi[1:nz-1]*y[1+1:(nz-1)+1] + Ci[1:nz-1]*y[1-1:(nz-1)-1] ) # shape of (nz-2,ni)
         tmp2 = (A[nz-1] + Ai[nz-1])*y[nz-1] + (C[nz-1] + Ci[nz-1])*y[nz-2]
         diff = np.append(np.append(tmp0, tmp1), tmp2)
         diff = diff.reshape(nz,ni)
-        
+
         if vulcan_cfg.use_topflux == True:
             # Don't forget dz!!! -d phi/ dz
             ### the const flux has no contribution to the jacobian ### 
             diff[-1] += atm.top_flux / atm.dz[-1]
-        if vulcan_cfg.use_botflux == True:  
-            diff[0] += atm.bot_flux / atm.dz[0]
+        if vulcan_cfg.use_botflux == True:
+             ### the deposition term needs to be included in the jacobian!!!   
+             diff[0] += (atm.bot_flux - y[0]*atm.bot_vdep) / atm.dz[0]
             
         return diff
               
@@ -874,8 +879,12 @@ class ODESolver(object):
         g = vulcan_cfg.g
         
         # define T_1/2 for the molecular diffusion
-        Ti = 0.5*(Tco + np.roll(Tco,-1))
-        Ti = Ti[:-1]
+        #Ti = 0.5*(Tco + np.roll(Tco,-1))
+        #Ti = Ti[:-1]
+        
+        Ti = atm.Ti.copy()
+        Hpi = atm.Hpi.copy()
+        
         
         dfdy = achemjac(y, atm.M, var.k)
         j_indx = []
@@ -891,27 +900,32 @@ class ODESolver(object):
             dfdy[j_indx[j], j_indx[j+1]] += 1./dz_ave*( Kzz[j]/dzi[j]*(ysum[j+1]+ysum[j])/(2.*ysum[j+1]) )
             dfdy[j_indx[j], j_indx[j-1]] += 1./dz_ave*( Kzz[j-1]/dzi[j-1]*(ysum[j-1]+ysum[j])/(2.*ysum[j-1]) )
             
+            # [j_indx[j], j_indx[j]] has size ni*ni
             dfdy[j_indx[j], j_indx[j]] +=  -1./dz_ave*( Dzz[j]/dzi[j]*(ysum[j+1]+ysum[j])/2. + Dzz[j-1]/dzi[j-1]*(ysum[j-1]+ysum[j])/2. ) /ysum[j]\
-            -1./dz_ave *( 0.5*Dzz[j]*( (mu[j]- ms)/Navo*g/(kb*Ti[j]) - alpha/Ti[j]*(Tco[j+1]-Tco[j])/dzi[j]) - \
-            0.5*Dzz[j-1]*( (mu[j]- ms)/Navo*g/(kb*Ti[j-1]) - alpha/Ti[j-1]*(Tco[j]-Tco[j-1])/dzi[j-1])   )       
+            +1./(2.*dz_ave)*( Dzz[j]*(-1./Hpi[j]+ms*g/(Navo*kb*Ti[j])+alpha/Ti[j]*(Tco[j+1]-Tco[j])/dzi[j] ) \
+            - Dzz[j-1]*(-1./Hpi[j-1]+ms*g/(Navo*kb*Ti[j-1])+alpha/Ti[j-1]*(Tco[j]-Tco[j-1])/dzi[j-1] ) )
             dfdy[j_indx[j], j_indx[j+1]] += 1./dz_ave*( Dzz[j]/dzi[j]*(ysum[j+1]+ysum[j])/(2.*ysum[j+1]) ) \
-            -1./dz_ave * 0.5*Dzz[j] *( (mu[j]- ms)/Navo*g/(kb*Ti[j]) - alpha/Ti[j]*(Tco[j+1]-Tco[j])/dzi[j])
+            +1./(2.*dz_ave)* Dzz[j]*(-1./Hpi[j]+ms*g/(Navo*kb*Ti[j])+alpha/Ti[j]*(Tco[j+1]-Tco[j])/dzi[j] ) 
             dfdy[j_indx[j], j_indx[j-1]] += 1./dz_ave*( Dzz[j-1]/dzi[j-1]*(ysum[j-1]+ysum[j])/(2.*ysum[j-1]) ) \
-            +1./dz_ave * 0.5*Dzz[j-1] *((mu[j]- ms)/Navo*g/(kb*Ti[j-1]) - alpha/Ti[j-1]*(Tco[j]-Tco[j-1])/dzi[j-1])
-            
-        dfdy[j_indx[0], j_indx[0]] += -1./(dzi[0])*(Kzz[0]/dzi[0]) * (ysum[1]+ysum[0])/(2*ysum[0])
-        dfdy[j_indx[0], j_indx[0]] += -1./(dzi[0])*(Dzz[0]/dzi[0]) *(ysum[1]+ysum[0])/2. /ysum[0] \
-        - 0.5*Dzz[0]/dzi[0] *((mu[0]- ms)/Navo*g/(kb*Ti[0]) - alpha/Ti[0]*(Tco[1]-Tco[0])/dzi[0])
-        dfdy[j_indx[0], j_indx[1]] += 1./(dzi[0])*(Kzz[0]/dzi[0]) * (ysum[1]+ysum[0])/(2*ysum[1]) 
-        dfdy[j_indx[0], j_indx[1]] += 1./(dzi[0])*(Dzz[0]/dzi[0]) *(ysum[1]+ysum[0])/2. /ysum[1] \
-        - 0.5*Dzz[0]/dzi[0] *((mu[0]- ms)/Navo*g/(kb*Ti[0]) - alpha/Ti[0]*(Tco[1]-Tco[0])/dzi[0]) 
+            -1./(2.*dz_ave)* Dzz[j-1]*(-1./Hpi[j-1]+ms*g/(Navo*kb*Ti[j-1])+alpha/Ti[j-1]*(Tco[j]-Tco[j-1])/dzi[j-1] )
+
+              
+        dfdy[j_indx[0], j_indx[0]] += -1./(dzi[0])*(Kzz[0]/dzi[0]) * (ysum[1]+ysum[0])/(2.*ysum[0])
+        dfdy[j_indx[0], j_indx[0]] += -1./(dzi[0])*(Dzz[0]/dzi[0]) * (ysum[1]+ysum[0])/(2.*ysum[0]) \
+        +1./(dzi[0])* Dzz[0]/2.*(-1./Hpi[0]+ms*g/(Navo*kb*Ti[0])+alpha/Ti[0]*(Tco[1]-Tco[0])/dzi[0] )
+        # deposition velocity
+        if vulcan_cfg.use_botflux == True: dfdy[j_indx[0], j_indx[0]] += -1.*atm.bot_vdep / atm.dz[0]
+        
+        dfdy[j_indx[0], j_indx[1]] += 1./(dzi[0])*(Kzz[0]/dzi[0]) * (ysum[1]+ysum[0])/(2.*ysum[1]) 
+        dfdy[j_indx[0], j_indx[1]] += 1./(dzi[0])*(Dzz[0]/dzi[0]) * (ysum[1]+ysum[0])/(2.*ysum[1]) \
+        +1./(dzi[0])* Dzz[0]/2.*(-1./Hpi[0]+ms*g/(Navo*kb*Ti[0])+alpha/Ti[0]*(Tco[1]-Tco[0])/dzi[0] )
 
         dfdy[j_indx[nz-1], j_indx[nz-1]] += -1./(dzi[nz-2])*(Kzz[nz-2]/dzi[nz-2]) *(ysum[(nz-1)-1]+ysum[nz-1])/(2.*ysum[nz-1])
-        dfdy[j_indx[nz-1], j_indx[nz-1]] += -1./(dzi[nz-2])*(Dzz[nz-2]/dzi[nz-2]) *(ysum[nz-1]+ysum[nz-2])/2. /ysum[nz-1] \
-                + 0.5*Dzz[-1]/dzi[-1] *((mu[0]- ms)/Navo*g/(kb*Ti[-1]) - alpha/Ti[-1]*(Tco[-1]-Tco[-2])/dzi[-1])   
+        dfdy[j_indx[nz-1], j_indx[nz-1]] += -1./(dzi[nz-2])*(Dzz[nz-2]/dzi[nz-2]) *(ysum[nz-1]+ysum[nz-2])/(2.*ysum[nz-1]) \
+        - 1./(dzi[-1])* Dzz[-1]/2.*(-1./Hpi[-1]+ms*g/(Navo*kb*Ti[-1])+alpha/Ti[-1]*(Tco[-1]-Tco[-2])/dzi[-1] )
         dfdy[j_indx[nz-1], j_indx[(nz-1)-1]] += 1./(dzi[nz-2])*(Kzz[nz-2]/dzi[nz-2])* (ysum[(nz-1)-1]+ysum[nz-1])/(2.*ysum[(nz-1)-1])  
-        dfdy[j_indx[nz-1], j_indx[(nz-1)-1]] += 1./(dzi[nz-2])*(Dzz[nz-2]/dzi[nz-2]) *(ysum[nz-1]+ysum[nz-2])/2. /ysum[nz-2] \
-                + 0.5*Dzz[-1]/dzi[-1] *((mu[0]- ms)/Navo*g/(kb*Ti[-1]) - alpha/Ti[-1]*(Tco[-1]-Tco[-2])/dzi[-1])
+        dfdy[j_indx[nz-1], j_indx[(nz-1)-1]] += 1./(dzi[nz-2])*(Dzz[nz-2]/dzi[nz-2]) *(ysum[nz-1]+ysum[nz-2])/(2.*ysum[(nz-1)-1]) \
+                -1./(dzi[-1])* Dzz[-1]/2.*(-1./Hpi[-1]+ms*g/(Navo*kb*Ti[-1])+alpha/Ti[-1]*(Tco[-1]-Tco[-2])/dzi[-1] )
 
         return dfdy
           
@@ -1058,8 +1072,6 @@ class ODESolver(object):
             for sp in var.photo_sp:
             # summing over all photo species
                 var.tau[j] += var.y[j,species.index(sp)] * atm.dz[j] * var.cross[sp] # only the j-th laye
-            # adding the above layer at the end of species loop
-            var.tau[j] += var.tau[j+1]
             
             for sp in vulcan_cfg.scat_sp: # scat_sp are not necessary photo_sp, e.g. He
                 var.tau[j] += var.y[j,species.index(sp)] * atm.dz[j] * var.cross_scat[sp]
@@ -1505,19 +1517,23 @@ class Ros2(ODESolver):
     
         return var, para
     
-    def one_step(self, var, atm, para):
+    def naming_solver(self, para):
         
         if vulcan_cfg.use_fix_bot_no_moldiff == True: 
             # I haven't write the fix-bottome with molecular diff       
             #print ('Use fixed bottom BC (without molecular diffusion)...')
-            solver_str = 'solver_fixbot'
+            para.solver_str = 'solver_fixbot'
             
         else:
-            solver_str = 'solver'
-            
+            print ('Test Solver')
+            para.solver_str = 'solver'
+        
+        
+    def one_step(self, var, atm, para):
+
         while True:
             
-           var, para =  getattr(self, solver_str)(var, atm, para)
+           var, para =  getattr(self, para.solver_str)(var, atm, para)
            
            # clipping small negative values and also calculating atomic loss (atom_loss)  
            var , para = self.clip(var, para) 
@@ -1591,13 +1607,20 @@ class Output(object):
         
         print ('------ Live long and prosper \V/ ------') 
     
-    def save_out(self, var, atm, para, dname): 
+    def save_cfg(self, dname):
         output_dir, out_name = vulcan_cfg.output_dir, vulcan_cfg.out_name
-        output_file = dname + '/' + output_dir + out_name
         # copy the vulcan_cfg.py file
         with open('vulcan_cfg.py' ,'r') as f:
             cfg_str = f.read()
         with open(dname + '/' + output_dir + "cfg_" + out_name[:-3] + "txt", 'w') as f: f.write(cfg_str)
+    
+    def save_out(self, var, atm, para, dname): 
+        output_dir, out_name = vulcan_cfg.output_dir, vulcan_cfg.out_name
+        output_file = dname + '/' + output_dir + out_name
+        # # copy the vulcan_cfg.py file
+#         with open('vulcan_cfg.py' ,'r') as f:
+#             cfg_str = f.read()
+#         with open(dname + '/' + output_dir + "cfg_" + out_name[:-3] + "txt", 'w') as f: f.write(cfg_str)
 
         fq = vulcan_cfg.out_y_time_freq
         

@@ -99,8 +99,8 @@ class InitialAbun(object):
                             print ("{:4}".format(sp) + "{0:.4E}".format(sp_abun))
                         new_str += line
             
-            # make the new elemental abundance file
-            with open('fastchem_vulcan/chemistry/elements/element_abundances_vulcan.dat', 'w') as f: f.write(new_str)
+                # make the new elemental abundance file
+                with open('fastchem_vulcan/chemistry/elements/element_abundances_vulcan.dat', 'w') as f: f.write(new_str)
             
         # write a T-P text file for fast_chem
         with open('fastchem_vulcan/input/vulcan_TP/vulcan_TP.dat' ,'w') as f:
@@ -390,9 +390,9 @@ class Atm(object):
 #         else: raise IOError ('\n Unknow atm_base!')
         
         
-        # thermal diffusion for H and H2
-        atm.alpha[species.index('H')] = -0.25
-        atm.alpha[species.index('H2')] = -0.25
+        # # thermal diffusion for H and H2
+        # atm.alpha[species.index('H')] = -0.25
+        # atm.alpha[species.index('H2')] = -0.25
     
     def BC_flux(self, atm):
         '''
@@ -415,6 +415,16 @@ class Atm(object):
                     if not line.startswith("#") and line.strip():
                         li = line.split()                   
                         atm.bot_flux[species.index(li[0])] = li[1]
+                        atm.bot_vdep[species.index(li[0])] = li[2]
+                        
+        # using fixed-mixing-ratio BC          
+        if vulcan_cfg.use_some_fix_bot == True: 
+            print ("Using the prescribed fixed bottom mixing ratios.")
+            with open (vulcan_cfg.bot_BC_mix_file) as f:
+                for line in f.readlines():
+                    if not line.startswith("#") and line.strip():
+                        li = line.split()                   
+                        atm.bot_fix_sp[species.index(li[0])] = li[3]
          
         
 

@@ -74,7 +74,7 @@ class Variables(object):
         # User define what to save!
         self.var_save = ['k','y','ymix','ysum','y_ini','y_conden','t','dt','longdy','longdydt',\
         'atom_ini','atom_sum','atom_loss','atom_conden','aflux_change'] 
-        if vulcan_cfg.use_photo == True: self.var_save.extend(['nbin','bins','dbin','tau','sflux','aflux','cross','cross_scat','J_sp','wavelen','n_branch','br_ratio'])
+        if vulcan_cfg.use_photo == True: self.var_save.extend(['nbin','bins','dbin','tau','sflux','aflux','cross','cross_scat','cross_J', 'J_sp','wavelen','n_branch','br_ratio'])
         #self.var_evol_save = ['ymix_time','t_time','atom_loss_time']
         self.var_evol_save = []
         
@@ -116,17 +116,19 @@ class AtmData(object):
         self.zco = np.empty(nz+1) # not used in calculation
         self.zmco = np.empty(nz)
         self.Tco = np.empty(nz)
-        self.Kzz = np.empty(nz-1)
+        self.Kzz = np.zeros(nz-1)
         self.M = np.empty(nz)
         self.n_0 = np.empty(nz)
         self.Hp = np.empty(nz)
         self.mu = np.empty(nz)
         self.ms = np.empty(ni) # molecular weight for every species
-        self.Dzz = np.empty((nz-1,ni))
+        self.Dzz = np.zeros((nz-1,ni))
         self.alpha = -0.25*np.ones(ni) # thermal diffusion factor = -0.25 for every species except for H and H2 (defined in mol_diff() in build_atm.py)
         
         self.top_flux = np.zeros(ni)
         self.bot_flux = np.zeros(ni)
+        self.bot_vdep = np.zeros(ni)
+        self.bot_fix_sp = np.zeros(ni)
         
         self.sat_p = {}
         
@@ -148,4 +150,4 @@ class Parameters(object):
         self.loss_count = 0
         self.delta_count= 0
         self.end_case = 0
-        
+        self.solver_str = '' # for assigning the name of solver

@@ -1,6 +1,7 @@
 #!/usr/bin/python
 
 import sys, os
+import numpy as np
 import vulcan_cfg
 # for constructing the symbolic Jacobian matrix
 from sympy import sin, cos, Matrix
@@ -655,6 +656,39 @@ def make_jac(ni, nr, ofname):
 
     # save the output function
     with open (ofname, 'a+') as f: f.write(jstr)
+
+
+def check_conserv():
+    from chem_funs import re_dict
+    conserv_check = True
+    compo = np.genfromtxt(vulcan_cfg.com_file,names=True,dtype=None)
+    compo_row = list(compo['species'])
+    # Convert bytes to strings
+    compo_row = [sp.decode("utf-8") for sp in compo_row]
+    #print (compo_row)
+    num_atoms = len(compo.dtype.names) - 2 # dtype.names returns the column names and -2 is for 'species' and 'mass'
+ 
+    for re in range(1,nr+1,2):
+    
+        reac_atoms, prod_atoms = np.zeros(num_atoms), np.zeros(num_atoms)
+    
+        for sp in re_dict[re][0]:        
+            # 1:7 for all the atoms (H	O	C	He	N	S)
+            reac_atoms += np.array(list(compo[compo_row.index(sp)])[1:num_atoms+1])
+            
+        for sp in re_dict[re][1]:      
+            prod_atoms += np.array(list(compo[compo_row.index(sp)])[1:num_atoms+1])
+        
+        if not np.all(reac_atoms == prod_atoms):
+            print ('Re ' + str(re) + ' not conserving element!')
+            conserv_check = False
+            
+    if conserv_check == True: 
+        print ('Elements conserved in the network.')
+    else:
+        raise IOError ('\nElements are not conserved in the reaction. Check the network!')
+            
+
     
 # def make_rate_ans(spec_list, ofname):
 #     '''
@@ -697,6 +731,12 @@ if __name__ == "__main__":
     make_Gibbs(re_table, gibbs_text, ofname)
     # import the "ofname" module as chemistry for make_jac to read df
     chemistry = __import__(ofname[:-3])
-    make_jac(ni, nr, ofname)
-    #make_rate_ans(species, ofname)
+    make_jac(ni, nr, ofname) # the last function that writes into chem_funs.py
+    check_conserv()
+    
+    
+    
+    
+    
+    
     

@@ -92,6 +92,9 @@ make_atm = build_atm.Atm()
 # for plotting and printing
 output = op.Output()
 
+# saving the config file
+output.save_cfg(dname)
+
 # construct pico
 data_atm = make_atm.f_pico(data_atm)
 # construct Tco and Kzz 
@@ -125,31 +128,33 @@ make_atm.BC_flux(data_atm)
 # ============== Execute VULCAN  ==============
 # time-steping in the while loop until conv() returns True or count > count_max 
 
-# setting the solver to the desinated one in vulcan_cfg
+# setting the numerical solver to the desinated one in vulcan_cfg
 #solver = eval("op." + vulcan_cfg.ode_solver + "()")
 solver_str = vulcan_cfg.ode_solver
 solver = getattr(op, solver_str)()
 
-#quasi = op.QuasiSteady(solver, output)
 
 # Setting up for photo chemistry
 if vulcan_cfg.use_photo == True:
-    
     rate.make_bins_read_cross(data_var)
     #rate.read_cross(data_var)
     make_atm.read_sflux(data_var, data_atm)
-
-    #solver.compute_tau(data_var, data_atm)
-    #solver.compute_flux(data_var, data_atm)
-    #solver.compute_J(data_var, data_atm)
     
-    # test
+    # computing the optical depth (tau), flux, and the photolisys rates (J) for the first time 
+    solver.compute_tau(data_var, data_atm)
+    solver.compute_flux(data_var, data_atm)
+    solver.compute_J(data_var, data_atm)
+    # they will be updated in op.Integration by the assigned frequence
+    
     # removing rates
     data_var = rate.remove_rate(data_var)
 
+
+integ = op.Integration(solver, output)
+# Assgining the specific solver corresponding to different B.C.s
+solver.naming_solver(data_para)
+ 
 # Running the integration loop
-integ = op.Integration(solver, output) 
 integ(data_var, data_atm, data_para, make_atm)
-#quasi(data_var, data_atm, data_para, make_atm)
 
 output.save_out(data_var, data_atm, data_para, dname)
