@@ -20,6 +20,7 @@ def read_network():
     Rf, Rindx = {}, {}
     i = 1
     special_re, photo_re = False, False
+    conden_re = False
     re_end = False
     
     if vulcan_cfg.use_photo==True: ofstr = '# Chemical Network and Photolysis Reactions \n\n'
@@ -40,8 +41,15 @@ def read_network():
                 special_re = True # switch to reactions with special forms (hard coded)                   
                 re_label = '#S'
                 
+            elif line.startswith("# condensation"): 
+                print ('Including condensation reactions.')
+                special_re = False # switch to reactions with special forms (hard coded)
+                conden_re = True                   
+                re_label = '#C'
+                
             elif line.startswith("# photo"): 
                 special_re = False # switch to photo-disscoiation reactions
+                conden_re = False
                 photo_re = True                 
                 re_label = '#P'
                 
@@ -65,6 +73,11 @@ def read_network():
                 
                 # storing only the photochemical reactions
                 if re_label == '#P':
+                    photo_str += re_label + str(i) + '\n'
+                    photo_str += Rf[i] + '\n'
+                    
+                # storing only the condensation reactions
+                if re_label == '#C':
                     photo_str += re_label + str(i) + '\n'
                     photo_str += Rf[i] + '\n'
                 

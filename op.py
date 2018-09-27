@@ -19,7 +19,7 @@ import build_atm
 import chem_funs
 from chem_funs import ni, nr  # number of species and reactions in the network
 
-from phy_const import kb, Navo, hc, edd, ag0 # hc is used to convert to the actinic flux
+from phy_const import kb, Navo, hc, ag0 # hc is used to convert to the actinic flux
 
 from vulcan_cfg import nz
 
@@ -396,18 +396,18 @@ class ReadRate(object):
         
         # all variables that depend on nbins
         # the direct beam (staggered)
-        var.sflux = np.empty( (nz+1, var.nbin) )
+        var.sflux = np.zeros( (nz+1, var.nbin) )
         # the diffusive flux (staggered)
         var.dflux_u, var.dflux_d = np.zeros( (nz+1, var.nbin) ), np.zeros( (nz+1, var.nbin) )
         # the total actinic flux (non-staggered)
-        var.aflux = np.empty( (nz, var.nbin) )
+        var.aflux = np.zeros( (nz, var.nbin) )
         # the total actinic flux from the previous calculation 
-        prev_aflux = np.empty( (nz, var.nbin) )
+        prev_aflux = np.zeros( (nz, var.nbin) )
         
         # staggered
         var.tau = np.zeros( (nz+1, var.nbin) )
         # the stellar flux at TOA
-        var.sflux_top = np.empty(var.nbin)
+        var.sflux_top = np.zeros(var.nbin)
         
         
         # read_cross
@@ -509,7 +509,7 @@ class Integration(object):
             # updating tau, flux, and the photolosys rate
             
             # TEST
-            if var.longdy < 0.5 and var.longdydt < 1.e-6:  
+            if vulcan_cfg.use_photo == True and var.longdy < 0.5 and var.longdydt < 1.e-6:  
                 self.update_photo_frq = vulcan_cfg.final_update_photo_frq
                 print ('update_photo_frq changed to ' + str(vulcan_cfg.final_update_photo_frq))
             
@@ -694,7 +694,8 @@ class ODESolver(object):
         ysum = np.sum(y, axis=1)
         dzi = atm.dzi.copy()
         Kzz = atm.Kzz.copy()
-           
+        vz = atm.vz.copy()
+        
         A, B, C = np.zeros(nz), np.zeros(nz), np.zeros(nz)
 
         A[0] = -1./(dzi[0])*(Kzz[0]/dzi[0]) *(ysum[1]+ysum[0])/2. /ysum[0]     
@@ -703,12 +704,29 @@ class ODESolver(object):
         A[nz-1] = -1./(dzi[nz-2])*(Kzz[nz-2]/dzi[nz-2]) *(ysum[nz-1]+ysum[nz-2])/2. /ysum[nz-1] 
         B[nz-1] = 0 
         C[nz-1] = 1./(dzi[nz-2])*(Kzz[nz-2]/dzi[nz-2]) *(ysum[nz-1]+ysum[nz-2])/2. /ysum[nz-2] 
-       
+        
+        # vertical adection with zero-flux B.C. 
+        A[0] += -( (vz[0]>0)*vz[0] )/dzi[0]
+        B[0] += -( (vz[0]<0)*vz[0] )/dzi[0]
+        A[-1] += ( (vz[-1]<0)*vz[-1] )/dzi[-1]
+        C[-1] += ( (vz[-1]>0)*vz[-1] )/dzi[-1]
+        
         for j in range(1,nz-1):  
+            dz_ave = 0.5*(dzi[j-1] + dzi[j])
             A[j] = -2./(dzi[j-1] + dzi[j])* ( Kzz[j]/dzi[j]*(ysum[j+1]+ysum[j])/2. + Kzz[j-1]/dzi[j-1]*(ysum[j]+ysum[j-1])/2. ) /ysum[j]  
             B[j] = 2./(dzi[j-1] + dzi[j])*Kzz[j]/dzi[j] *(ysum[j+1]+ysum[j])/2. /ysum[j+1]
             C[j] = 2./(dzi[j-1] + dzi[j])*Kzz[j-1]/dzi[j-1] *(ysum[j]+ysum[j-1])/2. /ysum[j-1]
-    
+            
+            # vertical adection
+            #A[j] += -0.5*(vz[j]-vz[j-1])/dz_ave
+            #B[j] += -0.5*(vz[j])/dz_ave
+            #C[j] += -0.5*(-vz[j-1])/dz_ave
+            
+            A[j] += -( (vz[j]>0)*vz[j] + (vz[j-1]<0)*vz[j-1] )/dz_ave
+            B[j] += -( (vz[j]<0)*vz[j] )/dz_ave
+            C[j] += ( (vz[j-1]>0)*vz[j-1] )/dz_ave
+            #
+            
         tmp0 = A[0]*y[0] + B[0]*y[1]
         tmp1 = np.ndarray.flatten( (np.vstack(A[1:nz-1])*y[1:(nz-1)] + np.vstack(B[1:nz-1])*y[1+1:(nz-1)+1] + np.vstack(C[1:nz-1])*y[1-1:(nz-1)-1]) )
         tmp2 = (A[nz-1]*y[nz-1] +C[nz-1]*y[nz-2]) 
@@ -727,6 +745,7 @@ class ODESolver(object):
         ysum = np.sum(y, axis=1)
         dzi = atm.dzi.copy()
         Kzz = atm.Kzz.copy()
+        vz = atm.vz.copy()
         Dzz = atm.Dzz.copy()
         alpha = atm.alpha.copy()
         Tco = atm.Tco.copy()
@@ -753,6 +772,13 @@ class ODESolver(object):
         B[nz-1] = 0 
         C[nz-1] = 1./(dzi[nz-2])*(Kzz[nz-2]/dzi[nz-2]) *(ysum[nz-1]+ysum[nz-2])/2. /ysum[nz-2] 
         
+        # vertical adection
+        A[0] += -0.5*(vz[0])/dzi[0]
+        B[0] += -0.5*(vz[0])/dzi[0]
+        A[-1] +=  0.5*(vz[-1])/dzi[-1]
+        C[-1] += 0.5*(vz[-1])/dzi[-1]
+        # vertical adection
+        
         # shape of ni-long 1D array
         Ai[0] = -1./(dzi[0])*(Dzz[0]/dzi[0]) *(ysum[1]+ysum[0])/2. /ysum[0] +\
         1./(dzi[0])* Dzz[0]/2.*(-1./Hpi[0]+ms*g/(Navo*kb*Ti[0])+alpha/Ti[0]*(Tco[1]-Tco[0])/dzi[0] )  
@@ -770,6 +796,11 @@ class ODESolver(object):
             A[j] = -1./dz_ave * ( Kzz[j]/dzi[j]*(ysum[j+1]+ysum[j])/2. + Kzz[j-1]/dzi[j-1]*(ysum[j]+ysum[j-1])/2. ) /ysum[j]  
             B[j] = 1./dz_ave * Kzz[j]/dzi[j] *(ysum[j+1]+ysum[j])/2. /ysum[j+1]
             C[j] = 1./dz_ave * Kzz[j-1]/dzi[j-1] *(ysum[j]+ysum[j-1])/2. /ysum[j-1]
+            
+            # vertical adection
+            A[j] += -0.5*(vz[j]-vz[j-1])/dz_ave
+            B[j] += -0.5*(vz[j])/dz_ave
+            C[j] += -0.5*(-vz[j-1])/dz_ave
             
             # Ai in the shape of nz*ni and Ai[j] in the shape of ni 
             Ai[j] = -1./dz_ave * ( Dzz[j]/dzi[j]*(ysum[j+1]+ysum[j])/2. + Dzz[j-1]/dzi[j-1]*(ysum[j]+ysum[j-1])/2. ) /ysum[j]  
@@ -808,7 +839,7 @@ class ODESolver(object):
         ysum = np.sum(y, axis=1)
         dzi = atm.dzi.copy()
         Kzz = atm.Kzz.copy()
-        
+        vz = atm.vz.copy()
         dfdy = achemjac(y, atm.M, var.k)
         j_indx = []
         
@@ -818,14 +849,15 @@ class ODESolver(object):
         for j in range(1,nz-1): 
             # excluding the buttom and the top cell
             # at j level consists of ni species 
-            dfdy[j_indx[j], j_indx[j]] +=  -2./(dzi[j-1] + dzi[j])*( Kzz[j]/dzi[j]*(ysum[j+1]+ysum[j])/2. + Kzz[j-1]/dzi[j-1]*(ysum[j-1]+ysum[j])/2. ) /ysum[j] 
-            dfdy[j_indx[j], j_indx[j+1]] += 2./(dzi[j-1] + dzi[j])*( Kzz[j]/dzi[j]*(ysum[j+1]+ysum[j])/(2.*ysum[j+1]) )
-            dfdy[j_indx[j], j_indx[j-1]] += 2./(dzi[j-1] + dzi[j])*( Kzz[j-1]/dzi[j-1]*(ysum[j-1]+ysum[j])/(2.*ysum[j-1]) )
+            dz_ave = 0.5*(dzi[j-1] + dzi[j])
+            dfdy[j_indx[j], j_indx[j]] +=  -2./(dzi[j-1] + dzi[j])*( Kzz[j]/dzi[j]*(ysum[j+1]+ysum[j])/2. + Kzz[j-1]/dzi[j-1]*(ysum[j-1]+ysum[j])/2. ) /ysum[j] -( (vz[j]>0)*vz[j] + (vz[j-1]<0)*vz[j-1] )/dz_ave 
+            dfdy[j_indx[j], j_indx[j+1]] += 2./(dzi[j-1] + dzi[j])*( Kzz[j]/dzi[j]*(ysum[j+1]+ysum[j])/(2.*ysum[j+1]) ) -( (vz[j]<0)*vz[j] )/dz_ave
+            dfdy[j_indx[j], j_indx[j-1]] += 2./(dzi[j-1] + dzi[j])*( Kzz[j-1]/dzi[j-1]*(ysum[j-1]+ysum[j])/(2.*ysum[j-1]) ) + ( (vz[j-1]>0)*vz[j-1] )/dz_ave
     
-        dfdy[j_indx[0], j_indx[0]] += -1./(dzi[0])*(Kzz[0]/dzi[0]) * (ysum[1]+ysum[0])/(2*ysum[0])
-        dfdy[j_indx[0], j_indx[1]] += 1./(dzi[0])*(Kzz[0]/dzi[0]) * (ysum[1]+ysum[0])/(2*ysum[1])   
-        dfdy[j_indx[nz-1], j_indx[nz-1]] += -1./(dzi[nz-2])*(Kzz[nz-2]/dzi[nz-2]) *(ysum[(nz-1)-1]+ysum[nz-1])/(2.*ysum[nz-1])   
-        dfdy[j_indx[nz-1], j_indx[(nz-1)-1]] += 1./(dzi[nz-2])*(Kzz[nz-2]/dzi[nz-2])* (ysum[(nz-1)-1]+ysum[nz-1])/(2.*ysum[(nz-1)-1])  
+        dfdy[j_indx[0], j_indx[0]] += -1./(dzi[0])*(Kzz[0]/dzi[0]) * (ysum[1]+ysum[0])/(2*ysum[0]) -( (vz[0]>0)*vz[0] )/dzi[0]
+        dfdy[j_indx[0], j_indx[1]] += 1./(dzi[0])*(Kzz[0]/dzi[0]) * (ysum[1]+ysum[0])/(2*ysum[1])  -( (vz[0]<0)*vz[0] )/dzi[0] 
+        dfdy[j_indx[nz-1], j_indx[nz-1]] += -1./(dzi[nz-2])*(Kzz[nz-2]/dzi[nz-2]) *(ysum[(nz-1)-1]+ysum[nz-1])/(2.*ysum[nz-1]) +( (vz[-1]<0)*vz[-1] )/dzi[-1]   
+        dfdy[j_indx[nz-1], j_indx[(nz-1)-1]] += 1./(dzi[nz-2])*(Kzz[nz-2]/dzi[nz-2])* (ysum[(nz-1)-1]+ysum[nz-1])/(2.*ysum[(nz-1)-1]) +( (vz[-1]>0)*vz[-1] )/dzi[-1]
 
         return dfdy
     
@@ -873,6 +905,7 @@ class ODESolver(object):
         dzi = atm.dzi.copy()
         Kzz = atm.Kzz.copy()
         Dzz = atm.Dzz.copy()
+        vz = atm.vz.copy()
         alpha = atm.alpha.copy()
         Tco = atm.Tco.copy()
         mu, ms = atm.mu.copy(),  atm.ms.copy()
@@ -896,9 +929,9 @@ class ODESolver(object):
             # excluding the buttom and the top cell
             # at j level consists of ni species
             dz_ave = 0.5*(dzi[j-1] + dzi[j]) 
-            dfdy[j_indx[j], j_indx[j]] +=  -1./dz_ave*( Kzz[j]/dzi[j]*(ysum[j+1]+ysum[j])/2. + Kzz[j-1]/dzi[j-1]*(ysum[j-1]+ysum[j])/2. ) /ysum[j] 
-            dfdy[j_indx[j], j_indx[j+1]] += 1./dz_ave*( Kzz[j]/dzi[j]*(ysum[j+1]+ysum[j])/(2.*ysum[j+1]) )
-            dfdy[j_indx[j], j_indx[j-1]] += 1./dz_ave*( Kzz[j-1]/dzi[j-1]*(ysum[j-1]+ysum[j])/(2.*ysum[j-1]) )
+            dfdy[j_indx[j], j_indx[j]] +=  -1./dz_ave*( Kzz[j]/dzi[j]*(ysum[j+1]+ysum[j])/2. + Kzz[j-1]/dzi[j-1]*(ysum[j-1]+ysum[j])/2. ) /ysum[j] -0.5*(vz[j]-vz[j-1])/dz_ave 
+            dfdy[j_indx[j], j_indx[j+1]] += 1./dz_ave*( Kzz[j]/dzi[j]*(ysum[j+1]+ysum[j])/(2.*ysum[j+1]) ) -0.5*(vz[j])/dz_ave
+            dfdy[j_indx[j], j_indx[j-1]] += 1./dz_ave*( Kzz[j-1]/dzi[j-1]*(ysum[j-1]+ysum[j])/(2.*ysum[j-1]) ) -0.5*(-vz[j-1])/dz_ave
             
             # [j_indx[j], j_indx[j]] has size ni*ni
             dfdy[j_indx[j], j_indx[j]] +=  -1./dz_ave*( Dzz[j]/dzi[j]*(ysum[j+1]+ysum[j])/2. + Dzz[j-1]/dzi[j-1]*(ysum[j-1]+ysum[j])/2. ) /ysum[j]\
@@ -910,20 +943,20 @@ class ODESolver(object):
             -1./(2.*dz_ave)* Dzz[j-1]*(-1./Hpi[j-1]+ms*g/(Navo*kb*Ti[j-1])+alpha/Ti[j-1]*(Tco[j]-Tco[j-1])/dzi[j-1] )
 
               
-        dfdy[j_indx[0], j_indx[0]] += -1./(dzi[0])*(Kzz[0]/dzi[0]) * (ysum[1]+ysum[0])/(2.*ysum[0])
+        dfdy[j_indx[0], j_indx[0]] += -1./(dzi[0])*(Kzz[0]/dzi[0]) * (ysum[1]+ysum[0])/(2.*ysum[0]) -( (vz[0]>0)*vz[0] )/dzi[0]
         dfdy[j_indx[0], j_indx[0]] += -1./(dzi[0])*(Dzz[0]/dzi[0]) * (ysum[1]+ysum[0])/(2.*ysum[0]) \
-        +1./(dzi[0])* Dzz[0]/2.*(-1./Hpi[0]+ms*g/(Navo*kb*Ti[0])+alpha/Ti[0]*(Tco[1]-Tco[0])/dzi[0] )
+        +1./(dzi[0])* Dzz[0]/2.*(-1./Hpi[0]+ms*g/(Navo*kb*Ti[0])+alpha/Ti[0]*(Tco[1]-Tco[0])/dzi[0] ) 
         # deposition velocity
         if vulcan_cfg.use_botflux == True: dfdy[j_indx[0], j_indx[0]] += -1.*atm.bot_vdep / atm.dz[0]
         
-        dfdy[j_indx[0], j_indx[1]] += 1./(dzi[0])*(Kzz[0]/dzi[0]) * (ysum[1]+ysum[0])/(2.*ysum[1]) 
+        dfdy[j_indx[0], j_indx[1]] += 1./(dzi[0])*(Kzz[0]/dzi[0]) * (ysum[1]+ysum[0])/(2.*ysum[1]) -( (vz[0]<0)*vz[0] )/dzi[0]
         dfdy[j_indx[0], j_indx[1]] += 1./(dzi[0])*(Dzz[0]/dzi[0]) * (ysum[1]+ysum[0])/(2.*ysum[1]) \
         +1./(dzi[0])* Dzz[0]/2.*(-1./Hpi[0]+ms*g/(Navo*kb*Ti[0])+alpha/Ti[0]*(Tco[1]-Tco[0])/dzi[0] )
 
-        dfdy[j_indx[nz-1], j_indx[nz-1]] += -1./(dzi[nz-2])*(Kzz[nz-2]/dzi[nz-2]) *(ysum[(nz-1)-1]+ysum[nz-1])/(2.*ysum[nz-1])
+        dfdy[j_indx[nz-1], j_indx[nz-1]] += -1./(dzi[nz-2])*(Kzz[nz-2]/dzi[nz-2]) *(ysum[(nz-1)-1]+ysum[nz-1])/(2.*ysum[nz-1]) +( (vz[-1]<0)*vz[-1] )/dzi[-1] 
         dfdy[j_indx[nz-1], j_indx[nz-1]] += -1./(dzi[nz-2])*(Dzz[nz-2]/dzi[nz-2]) *(ysum[nz-1]+ysum[nz-2])/(2.*ysum[nz-1]) \
         - 1./(dzi[-1])* Dzz[-1]/2.*(-1./Hpi[-1]+ms*g/(Navo*kb*Ti[-1])+alpha/Ti[-1]*(Tco[-1]-Tco[-2])/dzi[-1] )
-        dfdy[j_indx[nz-1], j_indx[(nz-1)-1]] += 1./(dzi[nz-2])*(Kzz[nz-2]/dzi[nz-2])* (ysum[(nz-1)-1]+ysum[nz-1])/(2.*ysum[(nz-1)-1])  
+        dfdy[j_indx[nz-1], j_indx[(nz-1)-1]] += 1./(dzi[nz-2])*(Kzz[nz-2]/dzi[nz-2])* (ysum[(nz-1)-1]+ysum[nz-1])/(2.*ysum[(nz-1)-1]) +( (vz[-1]>0)*vz[-1] )/dzi[-1]  
         dfdy[j_indx[nz-1], j_indx[(nz-1)-1]] += 1./(dzi[nz-2])*(Dzz[nz-2]/dzi[nz-2]) *(ysum[nz-1]+ysum[nz-2])/(2.*ysum[(nz-1)-1]) \
                 -1./(dzi[-1])* Dzz[-1]/2.*(-1./Hpi[-1]+ms*g/(Navo*kb*Ti[-1])+alpha/Ti[-1]*(Tco[-1]-Tco[-2])/dzi[-1] )
 
@@ -1176,6 +1209,8 @@ class ODESolver(object):
         # My cos[sl_angle] is always 0<=mu<=1
         # Converting my mu to Matej's mu (e.g. 45 deg -> 135 deg)
         mu_ang = -1.*np.cos(vulcan_cfg.sl_angle)
+    
+        edd = vulcan_cfg.edd
         
         tau = var.tau
         # delta_tau (length nz) is used in the transmission function
@@ -1247,16 +1282,22 @@ class ODESolver(object):
         for j in range(1,nz+1):        
             var.dflux_u[j] = 1./chi[j-1]*(phi[j-1]*var.dflux_u[j-1] - xi[j-1]*var.dflux_d[j] + i_u[j-1]/mu_ang )
         
-        # the average intensity (not flux!) of the direct beam
-        ave_int = 0.5*( var.sflux[:-1] + var.sflux[1:]) 
-        tot_int = ave_int + 0.5*(var.dflux_u[:-1] + var.dflux_u[1:] + var.dflux_d[1:] + var.dflux_d[:-1])/edd /(4.*np.pi)
-        # devided by the Eddington coefficient to recover the intensity
+        # old
+        # # the average intensity (not flux!) of the direct beam
+#         ave_int = 0.5*( var.sflux[:-1] + var.sflux[1:])
+#         tot_int = (ave_int + 0.5*(var.dflux_u[:-1] + var.dflux_u[1:] + var.dflux_d[1:] + var.dflux_d[:-1]) )/edd
+#         # devided by the Eddington coefficient to recover the intensity
         
         
+        # the average flux from the direct beam
+        ave_dir_flux = 0.5*( dir_flux[:-1] + dir_flux[1:]) 
+        # devided by the Eddington coefficient to recover the intensity then multiplied by 4pi to get the integrated flux
+        tot_flux = ave_dir_flux + 0.5*(var.dflux_u[:-1] + var.dflux_u[1:] + var.dflux_d[1:] + var.dflux_d[:-1])/edd 
         
-        # ### debug
         
-        var.ave_int = ave_int
+        # ### Debug
+        
+        #var.ave_int = ave_int
         
         # var.ll = ll
         # var.chi=chi
@@ -1273,15 +1314,15 @@ class ODESolver(object):
         
         
         ### Debug
-        if np.any(tot_int< -1.E-20):
-            print (tot_int[tot_int<-1.E-20])
+        if np.any(tot_flux< -1.e-20):
+            print (tot_flux[tot_flux<-1.e-20])
             raise IOError ('\nNegative diffusive flux! ')
         
          
         # store the previous actinic flux into prev_aflux
         var.prev_aflux = np.copy(var.aflux)
         # converting to the actinic flux and storing the current flux
-        var.aflux = tot_int / (hc/var.bins)
+        var.aflux = tot_flux / (hc/var.bins)
         # the change of the actinic flux
         var.aflux_change = np.nanmax( np.abs(var.aflux-var.prev_aflux)[var.aflux>vulcan_cfg.flux_atol]/var.aflux[var.aflux>vulcan_cfg.flux_atol] )
         
@@ -1356,14 +1397,7 @@ class ODESolver(object):
                 var.J_sp[(sp, 0)] += var.J_sp[(sp, nbr)]
                 # incoperating J into rate coefficients 
                 var.k[ var.pho_rate_index[(sp, nbr)]  ] = var.J_sp[(sp, nbr)]
-                
-                
-                # threshold??
-                
-      
-                    
-                           
-                
+                               
                 
                 # # for single branch photolysis e.g. N2 -> N + N
 #                 if n_branch[sp]==1: var.J_sp[(sp, 1)] = var.J_sp[(sp, 0)]
@@ -1574,6 +1608,8 @@ class Output(object):
 
         if not os.path.exists(output_dir): os.makedirs(output_dir)
         if not os.path.exists(plot_dir): os.makedirs(plot_dir)
+        if vulcan_cfg.use_save_movie == True:
+            if not os.path.exists(vulcan_cfg.movie_dir): os.makedirs(vulcan_cfg.movie_dir)
         
         if os.path.isfile(output_dir+out_name):
             # Fix Python 3.x and 2.x.
@@ -1662,18 +1698,25 @@ class Output(object):
         images = []
         colors = ['b','g','r','c','m','y','k','orange','pink', 'grey',\
         'darkred','darkblue','salmon','chocolate','mediumspringgreen','steelblue','plum','hotpink']
+        
+        tex_labels = {'H':'H','H2':'H$_2$','O':'O','OH':'OH','H2O':'H$_2$O','CH':'CH','C':'C','CH2':'CH$_2$','CH3':'CH$_3$','CH4':'CH$_4$','HCO':'HCO','H2CO':'H$_2$CO', 'C4H2':'C$_4$H$_2$',\
+        'C2':'C$_2$','C2H2':'C$_2$H$_2$','C2H3':'C$_2$H$_3$','C2H':'C$_2$H','CO':'CO','CO2':'CO$_2$','He':'He','O2':'O$_2$','CH3OH':'CH$_3$OH','C2H4':'C$_2$H$_4$','C2H5':'C$_2$H$_5$','C2H6':'C$_2$H$_6$','CH3O': 'CH$_3$O'\
+        ,'CH2OH':'CH$_2$OH', 'NH3':'NH$_3$'}
+        
         plt.figure('live mixing ratios')
         plt.ion()
         color_index = 0
         for sp in vulcan_cfg.live_plot_spec:
+            if sp in tex_labels: sp_lab = tex_labels[sp]
+            else: sp_lab = sp
             if vulcan_cfg.use_height == False:
-                line, = plt.plot(var.ymix[:,species.index(sp)], atm.pco/1.e6, color = colors[color_index], label=sp)
+                line, = plt.plot(var.ymix[:,species.index(sp)], atm.pco/1.e6, color = colors[color_index], label=sp_lab)
                 plt.gca().set_yscale('log')
                 plt.gca().invert_yaxis()
                 plt.ylabel("Pressure (bar)")
                 plt.ylim((vulcan_cfg.P_b/1.E6,vulcan_cfg.P_t/1.E6))
             else: # plotting with height
-                line, = plt.plot(var.ymix[:,species.index(sp)], atm.zmco/1.e5, color = colors[color_index], label=sp)
+                line, = plt.plot(var.ymix[:,species.index(sp)], atm.zmco/1.e5, color = colors[color_index], label=sp_lab)
                 plt.ylabel("Height (km)")
                 
             color_index +=1
@@ -1681,12 +1724,13 @@ class Output(object):
         
         plt.title(str(para.count)+' steps and ' + str("{:.2e}".format(var.t)) + ' s' )
         plt.gca().set_xscale('log')         
-        plt.xlim(1.E-20, 1.)
+        plt.xlim(1.E-16, 1.)
         plt.legend(frameon=0, prop={'size':14}, loc=3)
         plt.xlabel("Mixing Ratios")
         plt.show(block=0)
         plt.pause(0.001)
-        if vulcan_cfg.use_save_movie == True: plt.savefig( 'plot/movie/'+str(para.count)+'.jpg')
+        if vulcan_cfg.use_save_movie == True: 
+            plt.savefig( vulcan_cfg.movie_dir+str(int(para.count/vulcan_cfg.save_movie_rate))+'.jpg', dpi=200)
         plt.clf()
     
     def plot_flux_update(self, var, atm, para):

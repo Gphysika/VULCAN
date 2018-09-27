@@ -4,6 +4,9 @@ import scipy
 au = 1.4959787E13  # cm
 r_sun = 6.957E10 # cm
 
+# Epsilon Eridani is 10.475 light years away and with 0.735 solar radius
+# GJ876 is 15.2 light years away and has 0.3761 solar radius
+
 new_str = '# WL(nm)\t Flux(ergs/cm**2/s/nm)\n'
 
 with open('VPL_solar.txt') as f:

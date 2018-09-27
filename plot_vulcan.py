@@ -44,19 +44,27 @@ for sp in plot_spec:
     else: sp_lab = sp  
     
     plt.plot(data['variable']['ymix'][:,vulcan_spec.index(sp)], data['atm']['pco']/1.e6, color=colors[color_index], label=sp_lab, lw=1.5)
-    plt.plot(data['variable']['y_ini'][:,vulcan_spec.index(sp)]/data['atm']['n_0'], data['atm']['pco']/1.e6, color=colors[color_index], ls=':', lw=2)
+    plt.plot(data['variable']['y_ini'][:,vulcan_spec.index(sp)]/data['atm']['n_0'], data['atm']['pco']/1.e6, color=colors[color_index], ls=':', lw=1.5)
     
     color_index +=1
       
 plt.gca().set_xscale('log')       
 plt.gca().set_yscale('log') 
 plt.gca().invert_yaxis() 
-plt.xlim((1.E-16, 1.))
+plt.xlim((1.E-18, 1.))
 plt.ylim((1.E3,data['atm']['pco'][-1]/1e6))
-plt.legend(frameon=0, prop={'size':14}, loc='best')
+plt.legend(frameon=0, prop={'size':12}, loc='best')
+# handles, labels = plt.gca().get_legend_handles_labels()
+# display = range(len(sp_list))
+# #Create custom artists
+# art0 = plt.Line2D((0,0),(0,0), ls='None')
+# Artist1 = plt.Line2D(range(10),range(10), color='black')
+# Artist2 = plt.Line2D((0,1),(0,0), color='black', ls='--',lw=1.5)
+# plt.legend([Artist1,Artist2],['Equilibrium','Kinetics'], frameon=False, prop={'size':12}, loc='best')
+
 plt.xlabel("Mixing Ratio")
 plt.ylabel("Pressure (bar)")
-plt.title('HD189 Sun Manuel Test')
+plt.title('HD189733b')
 plt.savefig(plot_dir + plot_name + '.png')
 plt.savefig(plot_dir + plot_name + '.eps')
 if vulcan_cfg.use_PIL == True:

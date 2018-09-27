@@ -7,4 +7,4 @@ hc = 1.98644568E-9 # erg.nm
 au = 1.4959787E13  # cm
 r_sun = 6.957E10 # cm
 ag0 = 0 # the asymmetry factor (0 for isotropic scattering)
-edd = 1. # the first Edditon coefficient (0.5-1)
+#edd = 1. # the first Edditon coefficient (0.5-1)

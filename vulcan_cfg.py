@@ -10,7 +10,7 @@
 # ====== Setting up the elements included in the network ======
 atom_list = ['H', 'O', 'C', 'He', 'N']
 # ====== Set up paths and filenames for the input and output files  ======
-network = 'thermo/NCHO_photo_network_v118.txt'
+network = 'thermo/NCHO_photo_network.txt'
 gibbs_text = 'thermo/gibbs_text.txt'
 # all the nasa9 files must be placed in the folder: thermo/NASA9/
 cross_folder = 'thermo/leiden_cross/'
@@ -22,7 +22,8 @@ bot_BC_mix_file = 'atm/BC_bot.txt'
 vul_ini = 'output/moses_HD189.vul'
 output_dir = 'output/'
 plot_dir = 'plot/'
-out_name =  'v118-HD189.vul' #'from2nm-noC2H2-photo_Moses_HD189_nominalKzz.vul' #'photo_NCHO_Moses_HD189_nominalKzz.vul'
+movie_dir = 'plot/movie/new-HD189/'
+out_name =  'float128-test-new-HD189.vul' #'from2nm-noC2H2-photo_Moses_HD189_nominalKzz.vul' #'photo_NCHO_Moses_HD189_nominalKzz.vul'
 # storing data for every 'out_y_time_freq' step  
 out_y_time_freq = 10 
 
@@ -33,7 +34,8 @@ excit_sp = ['O_1', 'CH2_1'] # N_D to avoid in the initial abundances by fc
 scat_sp = ['H2', 'He'] # # the molecules that contribute to Rayleigh scattering
 r_star = 0.752 #0.752 HD209: 1.118
 orbit_radius = 0.03142 #0.03142 # planet-star distance in A.U.
-sl_angle = 48 /180.*3.14159 # the zenith angle of the star   
+sl_angle = 48 /180.*3.14159 # the zenith angle of the star  
+edd = 0.669 #(cos(48 deg) )  # the Eddington coefficient 
 dbin = 0.2
 
 # ====== Setting up the elemental abundance ======
@@ -41,9 +43,9 @@ use_solar = False # if False, using the customized elemental abundance
 # default: solar abundance (from Table 10. K.Lodders 2009)
 
 # customized elemental abundance
-O_H = 6.0618E-4 *(0.793) #*1000.
-C_H = 2.7761E-4 #*1000.
-N_H = 8.1853E-5 #*1000.
+O_H = 6.0618E-4 *(0.793)   #6.0618E-4 *(0.793) #*1000.
+C_H = 2.7761E-4  #2.7761E-4 #*1000.
+N_H = 8.1853E-5 #8.1853E-5 #*1000.
 He_H = 0.09691
 
  
@@ -52,13 +54,15 @@ ini_mix = 'fc' # 'fc 'const_lowT', 'fc_precal' 'vulcan_ini'
 
 
 # ====== Reactions to be switched off  ======
-remove_list = [] # in pairs e.g. [1,2]
+#remove_list = [15,16, 17,18, 593,594] # in pairs e.g. [1,2]
 #remove_list = list(range(1,621))
+remove_list = []
 
 # ====== Setting up parameters for the atmosphere ======
 atm_base = 'H2' # the bulk gas of the atmosphere: changes molecular diffsion and some 3-body reactions
-nz = 120
+nz = 180
 use_Kzz = True
+use_vz = 0
 use_moldiff = True
 use_fix_bot_no_moldiff = False
 use_topflux = False
@@ -67,17 +71,20 @@ use_some_fix_bot = False
 
 atm_type = 'file' # 'isothermal', 'analytical', or 'file'
 Kzz_prof = 'file' # 'const' or 'file'
+vz_prof = 'const' # 'const' or 'file'
+
 g = 2140.         # HD189:2140  HD209:936 # (cm/s^2)
 Tiso = 3000.
 # T_int, T_irr, ka_L, ka_S, beta_S, beta_L
 para_cool2 = [90.,  1000., 0.04, 0.01, 1., 1.]
 para_warm = [120., 1500., 0.1, 0.02, 1., 1.]
 para_hot3 = [200., 2800., 0.05, 0.15, 1., 1.]
-para_anaTP = para_hot3
+para_anaTP = para_warm
 
 const_Kzz = 1.E12 # (cm^2/s)
+const_vz = 0
 P_b = 1.E9 #(dyne/cm^2)
-P_t = 1.E-3
+P_t = 1.e-2
 
   
 # ====== Setting up general parameters for the ODE solver ====== 
@@ -87,16 +94,19 @@ use_height = False
 print_prog_num = 200
 use_live_plot = 1
 use_live_flux = 0
-use_save_movie = 0
-use_flux_movie = True
+use_save_movie = False
+use_flux_movie = False
+
 live_plot_frq = 10
+save_movie_rate = live_plot_frq
+
 use_plot_end = True
 use_plot_evo = False
 plot_TP = 1
 output_humanread = False
 plot_spec = ['H', 'H2', 'CH3', 'CH4', 'CO', 'CH3OH', 'CH2OH', 'He']
 # live_plot_spec = ['H', 'H2', 'H2O', 'CH4', 'CO', 'CO2', 'C2H2', 'C2H4', 'C2H6', 'CH3OH']
-live_plot_spec = ['H', 'H2O', 'CH4', 'CO', 'CO2', 'C2H2', 'NH3', 'HCN']
+live_plot_spec = ['H', 'H2O', 'CH4', 'CO', 'C2H2', 'NH3', 'HCN']
 # frequency to update the flux and tau
 ini_update_photo_frq = 20
 final_update_photo_frq = 2

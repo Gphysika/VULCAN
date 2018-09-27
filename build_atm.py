@@ -99,8 +99,8 @@ class InitialAbun(object):
                             print ("{:4}".format(sp) + "{0:.4E}".format(sp_abun))
                         new_str += line
             
-                # make the new elemental abundance file
-                with open('fastchem_vulcan/chemistry/elements/element_abundances_vulcan.dat', 'w') as f: f.write(new_str)
+            # make the new elemental abundance file
+            with open('fastchem_vulcan/chemistry/elements/element_abundances_vulcan.dat', 'w') as f: f.write(new_str)
             
         # write a T-P text file for fast_chem
         with open('fastchem_vulcan/input/vulcan_TP/vulcan_TP.dat' ,'w') as f:
@@ -127,7 +127,12 @@ class InitialAbun(object):
             neutral_sp = [sp for sp in species if sp not in vulcan_cfg.excit_sp]
 
             for sp in neutral_sp:
-                y_ini[:,species.index(sp)] = fc[sp]*gas_tot
+                if sp in fc.dtype.names:
+                    y_ini[:,species.index(sp)] = fc[sp]*gas_tot
+                else: print (sp + ' not included in fastchem.')
+            
+            # remove the fc output
+            subprocess.call(["rm vulcan_EQ.dat"], shell=True, cwd='fastchem_vulcan/output/')
         
         elif vulcan_cfg.ini_mix == 'fc_precal':
             
@@ -144,7 +149,14 @@ class InitialAbun(object):
             
             y_ini = np.copy(vul_data['variable']['y'])
             data_var.y = np.copy(y_ini)
-
+        
+        elif vulcan_cfg.ini_mix == 'const_mix':
+            
+            y_ini = np.zeros((nz,ni))
+            for sp in vulcan_cfg.const_mix.keys():
+                y_ini[:,species.index(sp)] = gas_tot* vulcan_cfg.const_mix[sp]
+            data_var.y = np.copy(y_ini)
+            
         else:
             
             for i in range(nz):
@@ -187,7 +199,10 @@ class Atm(object):
         self.type = vulcan_cfg.atm_type
         self.use_Kzz = vulcan_cfg.use_Kzz
         self.Kzz_prof = vulcan_cfg.Kzz_prof
-        self.const_Kzz = vulcan_cfg.const_Kzz        
+        self.const_Kzz = vulcan_cfg.const_Kzz
+        self.use_vz = vulcan_cfg.use_vz
+        self.vz_prof = vulcan_cfg.vz_prof
+        self.const_vz = vulcan_cfg.const_vz        
         
     def f_pico(self, data_atm):
         '''calculating the pressure at interface'''
@@ -213,7 +228,8 @@ class Atm(object):
         
         if self.type == 'isothermal': 
             data_atm.Tco = np.repeat(vulcan_cfg.Tiso,nz)
-            data_atm.Kzz = np.repeat(vulcan_cfg.const_Kzz,nz-1)
+            data_atm.Kzz = np.repeat(self.const_Kzz,nz-1)
+            data_atm.vz = np.repeat(self.const_vz,nz-1)
             
         elif self.type == 'analytical': 
             
@@ -223,7 +239,8 @@ class Atm(object):
             # return the P-T function
             PTK_fun['pT'] = lambda pressure: self.TP_H14(pressure, *para_atm)        
             data_atm.Tco = PTK_fun['pT'](data_atm.pco)
-            data_atm.Kzz = np.repeat(vulcan_cfg.const_Kzz,nz-1)
+            data_atm.Kzz = np.repeat(self.const_Kzz,nz-1)
+            data_atm.vz = np.repeat(self.const_vz,nz-1)
             
         elif self.type == 'file':
             
@@ -234,8 +251,12 @@ class Atm(object):
             elif self.Kzz_prof == 'file':
                 atm_table = np.genfromtxt(vulcan_cfg.atm_file, names=True, dtype=None, skip_header=1)
                 p_file, T_file, Kzz_file = atm_table['Pressure'], atm_table['Temp'], atm_table['Kzz']
- 
+            
             else: raise IOError ('\n"Kzz_prof" (the type of Kzz profile) cannot be recongized.\nPlease assign it as "file" or "const" in vulcan_cfg.')
+
+            if self.vz_prof == 'const': data_atm.vz = np.repeat(self.const_vz,nz-1)
+            elif self.vz_prof == 'file': vz_file =  atm_table['vz']
+
 
             if max(p_file) < data_atm.pco[0] or min(p_file) > data_atm.pco[-1]:
                 print ('Warning! P_b and P_t assgined in vulcan.cfg are out of range of the file.\nConstant extension will be used.')
@@ -269,7 +290,9 @@ class Atm(object):
                         
         if self.use_Kzz == False:
             # store Kzz in data_atm
-            data_atm.Kzz = np.zeros(nz-1)    
+            data_atm.Kzz = np.zeros(nz-1)
+        if self.use_vz == False: 
+            data_atm.vz = np.zeros(nz-1)   
                
         # calculating and storing M(the third body)
         data_atm.M = data_atm.pco/(kb*data_atm.Tco)

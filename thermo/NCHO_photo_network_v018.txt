@@ -316,7 +316,7 @@
 # 3-body reactions without high-pressure rates
 # id	# Reactions                         	A_0     	B_0     	C_0     	Ref												
 
-593	[ C + C + M -> C2 + M                ]   4.97E-27	-1.600  	0.0     	
+593	[ C + C + M -> C2 + M                ]   4.97E-27	-1.600  	0.0
 595	[ C2H + M -> C2 + H + M              ]   2.92E+11	-5.160  	57400.0 
 597	[ O + C + M -> CO + M                ]   9.10E-22	-3.100  	2114.0
 599	[ H + N + M -> NH + M                ]	 5.02E-32	 0.000		0.0			NIST 1973BRO663	

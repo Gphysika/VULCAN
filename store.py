@@ -117,6 +117,7 @@ class AtmData(object):
         self.zmco = np.empty(nz)
         self.Tco = np.empty(nz)
         self.Kzz = np.zeros(nz-1)
+        self.vz = np.zeros(nz-1)
         self.M = np.empty(nz)
         self.n_0 = np.empty(nz)
         self.Hp = np.empty(nz)
