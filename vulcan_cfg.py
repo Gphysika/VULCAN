@@ -23,7 +23,7 @@ vul_ini = 'output/moses_HD189.vul'
 output_dir = 'output/'
 plot_dir = 'plot/'
 movie_dir = 'plot/movie/new-HD189/'
-out_name =  'float128-test-new-HD189.vul' #'from2nm-noC2H2-photo_Moses_HD189_nominalKzz.vul' #'photo_NCHO_Moses_HD189_nominalKzz.vul'
+out_name =  'HD189.vul' #'from2nm-noC2H2-photo_Moses_HD189_nominalKzz.vul' #'photo_NCHO_Moses_HD189_nominalKzz.vul'
 # storing data for every 'out_y_time_freq' step  
 out_y_time_freq = 10 
 
@@ -49,7 +49,9 @@ N_H = 8.1853E-5 #8.1853E-5 #*1000.
 He_H = 0.09691
 
  
-ini_mix = 'fc' # 'fc 'const_lowT', 'fc_precal' 'vulcan_ini'
+ini_mix = 'fc' # or 'const_mix', 'const_lowT', 'fc_precal' 'vulcan_ini'
+const_mix = {'CO2':1.81E-3, 'He':0.136,'N2':0.8, 'H2':1.-1.81E-3-0.136-0.8 } # the initial mixing ratios
+
 # for 'vulcan_ini, the T-P grids have to be exactly the same
 
 
@@ -60,14 +62,16 @@ remove_list = []
 
 # ====== Setting up parameters for the atmosphere ======
 atm_base = 'H2' # the bulk gas of the atmosphere: changes molecular diffsion and some 3-body reactions
-nz = 180
+nz = 160
 use_Kzz = True
 use_vz = 0
 use_moldiff = True
-use_fix_bot_no_moldiff = False
+#use_fix_bot_no_moldiff = False
+
+# Boundary Conditions:
 use_topflux = False
 use_botflux = False
-use_some_fix_bot = False  
+use_fix_bot = False 
 
 atm_type = 'file' # 'isothermal', 'analytical', or 'file'
 Kzz_prof = 'file' # 'const' or 'file'
@@ -86,6 +90,11 @@ const_vz = 0
 P_b = 1.E9 #(dyne/cm^2)
 P_t = 1.e-2
 
+# == Condensation still testing...
+use_condense = False
+#start_conden_time = 1e10
+condesne_sp = ["H2O"]    # , 'NH3'
+non_gas_sp = ["H2O_l_s"]
   
 # ====== Setting up general parameters for the ODE solver ====== 
 ode_solver = 'Ros2' # case sensitive
@@ -106,7 +115,7 @@ plot_TP = 1
 output_humanread = False
 plot_spec = ['H', 'H2', 'CH3', 'CH4', 'CO', 'CH3OH', 'CH2OH', 'He']
 # live_plot_spec = ['H', 'H2', 'H2O', 'CH4', 'CO', 'CO2', 'C2H2', 'C2H4', 'C2H6', 'CH3OH']
-live_plot_spec = ['H', 'H2O', 'CH4', 'CO', 'C2H2', 'NH3', 'HCN']
+live_plot_spec = ['H', 'H2O', 'CH4', 'CO', 'CO2','C2H2', 'NH3', 'HCN','N2']
 # frequency to update the flux and tau
 ini_update_photo_frq = 20
 final_update_photo_frq = 2

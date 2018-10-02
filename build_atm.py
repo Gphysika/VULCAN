@@ -394,16 +394,22 @@ class Atm(object):
         Tco_i = np.delete((Tco + np.roll(Tco,1))*0.5, 0)
         n0_i = np.delete((n_0 + np.roll(n_0,1))*0.5, 0)
         
+        if vulcan_cfg.use_moldiff == False:
+            for i in range(len(species)):
+                # this is required even without molecular weight
+                atm.ms[i] = compo[compo_row.index(species[i])][-1]
+            return
+        
         if vulcan_cfg.atm_base == 'H2':
             Dzz_gen = lambda T, n_tot, mi: 2.3E17*T**0.765/n_tot *( 16.04/mi*(mi+2.016)/18.059 )**0.5
         else: raise IOError ('\n Unknow atm_base!')
-        
         
         for i in range(len(species)):
             # input should be float or in the form of nz-long 1D array
             atm.Dzz[:,i] = Dzz_gen(Tco_i, n0_i, self.mol_mass(species[i]))
             
             # constructing the molecular weight for every species
+            # this is required even without molecular weight
             atm.ms[i] = compo[compo_row.index(species[i])][-1]
         
         # no exception needed!?    
@@ -441,7 +447,7 @@ class Atm(object):
                         atm.bot_vdep[species.index(li[0])] = li[2]
                         
         # using fixed-mixing-ratio BC          
-        if vulcan_cfg.use_some_fix_bot == True: 
+        if vulcan_cfg.use_fix_bot == True: 
             print ("Using the prescribed fixed bottom mixing ratios.")
             with open (vulcan_cfg.bot_BC_mix_file) as f:
                 for line in f.readlines():

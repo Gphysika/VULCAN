@@ -861,16 +861,26 @@ class ODESolver(object):
 
         return dfdy
     
-    def jac_tot_fixbot(self, var, atm): # input y,dzi,Kzz
+    def jac_tot_fixbot(self, var, atm):
         """
-        jacobian matrix for dn/dt + dphi/dz = P - L (including diffusion)
-        zero-flux BC:  1st derivitive of y is zero
+        jacobian matrix for dn/dt + dphi/dz = P - L, including molecular diffusion and vertical advection (vz)
+        Fixed bottom BC: y[0] remains fixed
         """
         
         y = var.y.copy()
         ysum = np.sum(y, axis=1)
         dzi = atm.dzi.copy()
         Kzz = atm.Kzz.copy()
+        Dzz = atm.Dzz.copy()
+        vz = atm.vz.copy()
+        alpha = atm.alpha.copy()
+        Tco = atm.Tco.copy()
+        mu, ms = atm.mu.copy(),  atm.ms.copy()
+        g = vulcan_cfg.g
+
+        Ti = atm.Ti.copy()
+        Hpi = atm.Hpi.copy()
+        
         
         dfdy = achemjac(y, atm.M, var.k)
         j_indx = []
@@ -880,17 +890,41 @@ class ODESolver(object):
 
         for j in range(1,nz-1): 
             # excluding the buttom and the top cell
-            # at j level consists of ni species 
-            dfdy[j_indx[j], j_indx[j]] +=  -2./(dzi[j-1] + dzi[j])*( Kzz[j]/dzi[j]*(ysum[j+1]+ysum[j])/2. + Kzz[j-1]/dzi[j-1]*(ysum[j-1]+ysum[j])/2. ) /ysum[j] 
-            dfdy[j_indx[j], j_indx[j+1]] += 2./(dzi[j-1] + dzi[j])*( Kzz[j]/dzi[j]*(ysum[j+1]+ysum[j])/(2.*ysum[j+1]) )
-            dfdy[j_indx[j], j_indx[j-1]] += 2./(dzi[j-1] + dzi[j])*( Kzz[j-1]/dzi[j-1]*(ysum[j-1]+ysum[j])/(2.*ysum[j-1]) )
+            # at j level consists of ni species
+            dz_ave = 0.5*(dzi[j-1] + dzi[j]) 
+            dfdy[j_indx[j], j_indx[j]] +=  -1./dz_ave*( Kzz[j]/dzi[j]*(ysum[j+1]+ysum[j])/2. + Kzz[j-1]/dzi[j-1]*(ysum[j-1]+ysum[j])/2. ) /ysum[j] -0.5*(vz[j]-vz[j-1])/dz_ave 
+            dfdy[j_indx[j], j_indx[j+1]] += 1./dz_ave*( Kzz[j]/dzi[j]*(ysum[j+1]+ysum[j])/(2.*ysum[j+1]) ) -0.5*(vz[j])/dz_ave
+            dfdy[j_indx[j], j_indx[j-1]] += 1./dz_ave*( Kzz[j-1]/dzi[j-1]*(ysum[j-1]+ysum[j])/(2.*ysum[j-1]) ) -0.5*(-vz[j-1])/dz_ave
             
-        #dfdy[j_indx[0], j_indx[0]] += -1./(dzi[0])*(Kzz[0]/dzi[0]) * (ysum[1]+ysum[0])/(2*ysum[0])
+            # [j_indx[j], j_indx[j]] has size ni*ni
+            dfdy[j_indx[j], j_indx[j]] +=  -1./dz_ave*( Dzz[j]/dzi[j]*(ysum[j+1]+ysum[j])/2. + Dzz[j-1]/dzi[j-1]*(ysum[j-1]+ysum[j])/2. ) /ysum[j]\
+            +1./(2.*dz_ave)*( Dzz[j]*(-1./Hpi[j]+ms*g/(Navo*kb*Ti[j])+alpha/Ti[j]*(Tco[j+1]-Tco[j])/dzi[j] ) \
+            - Dzz[j-1]*(-1./Hpi[j-1]+ms*g/(Navo*kb*Ti[j-1])+alpha/Ti[j-1]*(Tco[j]-Tco[j-1])/dzi[j-1] ) )
+            dfdy[j_indx[j], j_indx[j+1]] += 1./dz_ave*( Dzz[j]/dzi[j]*(ysum[j+1]+ysum[j])/(2.*ysum[j+1]) ) \
+            +1./(2.*dz_ave)* Dzz[j]*(-1./Hpi[j]+ms*g/(Navo*kb*Ti[j])+alpha/Ti[j]*(Tco[j+1]-Tco[j])/dzi[j] ) 
+            dfdy[j_indx[j], j_indx[j-1]] += 1./dz_ave*( Dzz[j-1]/dzi[j-1]*(ysum[j-1]+ysum[j])/(2.*ysum[j-1]) ) \
+            -1./(2.*dz_ave)* Dzz[j-1]*(-1./Hpi[j-1]+ms*g/(Navo*kb*Ti[j-1])+alpha/Ti[j-1]*(Tco[j]-Tco[j-1])/dzi[j-1] )
+
+              
+        #dfdy[j_indx[0], j_indx[0]] += -1./(dzi[0])*(Kzz[0]/dzi[0]) * (ysum[1]+ysum[0])/(2.*ysum[0]) -( (vz[0]>0)*vz[0] )/dzi[0]
+        #dfdy[j_indx[0], j_indx[0]] += -1./(dzi[0])*(Dzz[0]/dzi[0]) * (ysum[1]+ysum[0])/(2.*ysum[0]) \
+        #+1./(dzi[0])* Dzz[0]/2.*(-1./Hpi[0]+ms*g/(Navo*kb*Ti[0])+alpha/Ti[0]*(Tco[1]-Tco[0])/dzi[0] ) 
+        # deposition velocity
+        if vulcan_cfg.use_botflux == True: dfdy[j_indx[0], j_indx[0]] += -1.*atm.bot_vdep / atm.dz[0]
+        
+        # Fix bottom BC
         dfdy[:, j_indx[0]] = 0.
         
-        dfdy[j_indx[0], j_indx[1]] += 1./(dzi[0])*(Kzz[0]/dzi[0]) * (ysum[1]+ysum[0])/(2*ysum[1])   
-        dfdy[j_indx[nz-1], j_indx[nz-1]] += -1./(dzi[nz-2])*(Kzz[nz-2]/dzi[nz-2]) *(ysum[(nz-1)-1]+ysum[nz-1])/(2.*ysum[nz-1])   
-        dfdy[j_indx[nz-1], j_indx[(nz-1)-1]] += 1./(dzi[nz-2])*(Kzz[nz-2]/dzi[nz-2])* (ysum[(nz-1)-1]+ysum[nz-1])/(2.*ysum[(nz-1)-1])  
+        dfdy[j_indx[0], j_indx[1]] += 1./(dzi[0])*(Kzz[0]/dzi[0]) * (ysum[1]+ysum[0])/(2.*ysum[1]) -( (vz[0]<0)*vz[0] )/dzi[0]
+        dfdy[j_indx[0], j_indx[1]] += 1./(dzi[0])*(Dzz[0]/dzi[0]) * (ysum[1]+ysum[0])/(2.*ysum[1]) \
+        +1./(dzi[0])* Dzz[0]/2.*(-1./Hpi[0]+ms*g/(Navo*kb*Ti[0])+alpha/Ti[0]*(Tco[1]-Tco[0])/dzi[0] )
+
+        dfdy[j_indx[nz-1], j_indx[nz-1]] += -1./(dzi[nz-2])*(Kzz[nz-2]/dzi[nz-2]) *(ysum[(nz-1)-1]+ysum[nz-1])/(2.*ysum[nz-1]) +( (vz[-1]<0)*vz[-1] )/dzi[-1] 
+        dfdy[j_indx[nz-1], j_indx[nz-1]] += -1./(dzi[nz-2])*(Dzz[nz-2]/dzi[nz-2]) *(ysum[nz-1]+ysum[nz-2])/(2.*ysum[nz-1]) \
+        - 1./(dzi[-1])* Dzz[-1]/2.*(-1./Hpi[-1]+ms*g/(Navo*kb*Ti[-1])+alpha/Ti[-1]*(Tco[-1]-Tco[-2])/dzi[-1] )
+        dfdy[j_indx[nz-1], j_indx[(nz-1)-1]] += 1./(dzi[nz-2])*(Kzz[nz-2]/dzi[nz-2])* (ysum[(nz-1)-1]+ysum[nz-1])/(2.*ysum[(nz-1)-1]) +( (vz[-1]>0)*vz[-1] )/dzi[-1]  
+        dfdy[j_indx[nz-1], j_indx[(nz-1)-1]] += 1./(dzi[nz-2])*(Dzz[nz-2]/dzi[nz-2]) *(ysum[nz-1]+ysum[nz-2])/(2.*ysum[(nz-1)-1]) \
+                -1./(dzi[-1])* Dzz[-1]/2.*(-1./Hpi[-1]+ms*g/(Navo*kb*Ti[-1])+alpha/Ti[-1]*(Tco[-1]-Tco[-2])/dzi[-1] )
 
         return dfdy
     
@@ -1494,6 +1528,10 @@ class Ros2(ODESolver):
         delta = np.abs(sol-yk2)
         delta[ymix < self.mtol] = 0
         delta[sol < self.atol] = 0
+        # TEST
+        if vulcan_cfg.use_condense == True:
+            for sp in vulcan_cfg.non_gas_sp:
+                delta[:,species.index(sp)] = 0
         delta = np.amax( delta[sol>0]/sol[sol>0] )
 
         var.y = sol
@@ -1504,16 +1542,26 @@ class Ros2(ODESolver):
     
     def solver_fixbot(self, var, atm, para):
         """
-        2nd order Rosenbrock [Verwer et al. 1997] with banded-matrix solver and fixxed bottom boundary
+        2nd order Rosenbrock [Verwer et al. 1997] with banded-matrix solver
+        with "no switches" for the molecular diffusion
+        when assigning vulcan_cfg.use_moldiff == False: I simply set Dzz to zero
         """
         y, ymix, h, k = var.y, var.ymix, var.dt, var.k
         M, dzi, Kzz = atm.M, atm.dzi, atm.Kzz
         
+        # store the fixed bottom level
         bottom = np.copy(ymix[0])
-
+        
         diffdf = self.diffdf
         jac_tot = self.jac_tot_fixbot
-    
+        
+        # if vulcan_cfg.use_moldiff == True:
+#             diffdf = self.diffdf
+#             jac_tot = self.jac_tot_fixbot
+#         else:
+#             diffdf = self.diffdf
+#             jac_tot = self.jac_tot_fixbot_noDzz
+            
         r = 1. + 1./2.**0.5
     
         df = chemdf(y,M,k) + diffdf(y, atm)
@@ -1521,7 +1569,6 @@ class Ros2(ODESolver):
         df = df.flatten()
         
         dfdy = jac_tot(var, atm)
-  
         lhs = 1./(r*h)*np.identity(ni*nz) - dfdy
         lhs_b, bw = self.store_bandM(lhs,ni,nz)
         k1_flat = scipy.linalg.solve_banded((bw,bw),lhs_b,df)
@@ -1543,6 +1590,10 @@ class Ros2(ODESolver):
         delta = np.abs(sol-yk2)
         delta[ymix < self.mtol] = 0
         delta[sol < self.atol] = 0
+        # TEST
+        if vulcan_cfg.use_condense == True:
+            for sp in vulcan_cfg.non_gas_sp:
+                delta[:,species.index(sp)] = 0
         delta = np.amax( delta[sol>0]/sol[sol>0] )
 
         var.y = sol
@@ -1553,13 +1604,18 @@ class Ros2(ODESolver):
     
     def naming_solver(self, para):
         
-        if vulcan_cfg.use_fix_bot_no_moldiff == True: 
-            # I haven't write the fix-bottome with molecular diff       
-            #print ('Use fixed bottom BC (without molecular diffusion)...')
+        if vulcan_cfg.use_fix_bot == True:
+            if vulcan_cfg.use_moldiff == True: print ('Use fixed bottom BC and molecular diffusion.')
+            else: print ('Use fixed bottom BC and No molecular diffusion.')
             para.solver_str = 'solver_fixbot'
+        
+        # elif vulcan_cfg.use_fix_bot == True and vulcan_cfg.use_moldiff = False:
+        #     print ('Use fixed bottom BC without molecular diffusion.')
+        #     para.solver_str = 'solver_fixbot_nomodiff'
             
         else:
-            print ('Test Solver')
+            if vulcan_cfg.use_moldiff == True: print ('Use zero-flux BC and molecular diffusion.')
+            else: print ('Use zero-flux BC and No molecular diffusion.')
             para.solver_str = 'solver'
         
         

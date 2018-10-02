@@ -100,6 +100,8 @@ data_atm = make_atm.f_pico(data_atm)
 # construct Tco and Kzz 
 data_atm =  make_atm.load_TPK(data_atm, output)
 # construct Dzz (molecular diffusion)
+
+# Only setting up ms (the species molecular weight) if vulcan_cfg.use_moldiff == False
 make_atm.mol_diff(data_atm)
 
 # for reading rates
